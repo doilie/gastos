@@ -1,0 +1,21 @@
+{
+  "name": "gastos",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Personal single-user finance app (monorepo root).",
+  "packageManager": "pnpm@11.21.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lint": "turbo run lint && pnpm knip",
+    "typecheck": "turbo run typecheck",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "knip": "knip --config packages/config/knip.json"
+  },
+  "devDependencies": {
+    "knip": "^5.88.1",
+    "turbo": "^2.5.8"
+  }
+}

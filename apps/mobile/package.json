@@ -1,0 +1,33 @@
+{
+  "name": "@gastos/mobile",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Expo (React Native) mobile app for gastos.",
+  "main": "expo-router/entry",
+  "scripts": {
+    "start": "expo start",
+    "build": "expo export --platform android",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@expo/metro-runtime": "^57.0.10",
+    "@gastos/shared": "workspace:*",
+    "expo": "^57.0.13",
+    "expo-router": "^57.0.13",
+    "expo-system-ui": "^57.0.2",
+    "react": "^19.2.3",
+    "react-native": "^0.86.2",
+    "react-native-safe-area-context": "^5.7.0",
+    "react-native-screens": "^4.26.2"
+  },
+  "devDependencies": {
+    "@gastos/config": "workspace:*",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.4",
+    "babel-preset-expo": "^57.0.6",
+    "eslint": "^10.8.1",
+    "react-dom": "^19.2.3",
+    "typescript": "^6.0.3"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "gastos",
+    "slug": "gastos",
+    "scheme": "gastos",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "updates": {
+      "enabled": false
+    },
+    "plugins": ["expo-router"],
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}

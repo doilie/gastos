@@ -1,0 +1,24 @@
+structure:
+* accounts: bank accounts. their balances are tracked and checked against the actual balance of the accounts
+* envelopes: grouping of sub-envelopes
+* sub-envelopes: where money is allocated for spending. it corresponds to multiple bank accounts. it will be used as a source for credit card payment or can also be credited for direct spending.
+* spendable: special envelope tracked for daily available balance. this should already exist without the user creating it. daily expenses that come from spendable accounts are added here. it has no sub-envelopes but it corresponds to multiple bank accounts. it can also be a source for credit card payments.
+* budget: tracks where the salaries per month will be placed in the sub-envelopes. there are multiple pay days to be budgeted per month. salaries to be allocated is considered as income
+* credit card budget: special budget allocated in the next salary that is used in credit card spending as available balance to spend
+* credit card spending: where credit card expenses are recorded. it has a cut-off per month. there are multiple credit card accounts being tracked. the payment per expense is retrieved from the credit card budget, other sub-envelopes, or can come from external payments. the payment account sources are the same as the accounts used by the envelopes.
+* categories: used to categorize where spending goes. initial category is special and used for salary and other incoming money. categories are assigned to expenses in spendable, credit card (only if they are not paid by others), and other direct credits to sub-envelopes.
+
+
+views:
+* account crud
+* envelope crud
+* sub-envelope crud
+* category crud
+* spendable transaction crud
+* credit card transaction crud
+* other envelope transaction crud
+* heat map of spending per day
+* spending per category per month vs income per month
+* spending per month by category
+* monthly pay day budget crud
+* budget in monthly pay day crud

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "workspaces": {
+    "apps/server": {
+      "entry": ["src/router.ts"],
+      "project": ["src/**/*.ts"]
+    },
+    "apps/mobile": {
+      "entry": ["app/**/*.{ts,tsx}"],
+      "project": ["app/**/*.{ts,tsx}"],
+      "babel": true
+    },
+    "packages/shared": {
+      "project": ["src/**/*.ts"]
+    }
+  }
+}

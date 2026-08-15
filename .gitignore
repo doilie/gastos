@@ -1,0 +1,37 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# corepack local shims (dev-environment workaround, not part of the project)
+.corepack-bin/
+
+# build output
+dist/
+build/
+.turbo/
+*.tsbuildinfo
+
+# expo
+.expo/
+.expo-shared/
+apps/mobile/web-build/
+
+# env
+.env
+.env.*
+!.env.example
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# editor / os
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# claude code (local-only settings)
+.claude/settings.local.json
