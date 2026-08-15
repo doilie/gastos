@@ -92,6 +92,8 @@ export interface Transaction {
   readonly accountId: AccountId;
   /** The envelope claim this transaction touches (HLD §3.1: a transaction names both). */
   readonly subEnvelopeId: SubEnvelopeId;
+  /** Links this transaction to its paired counterpart for a transfer (HLD §2.2, "paired postings"); `null` for a non-paired transaction. */
+  readonly counterTransactionId: TransactionId | null;
   /** Signed: positive = inflow (credit), negative = outflow (debit). */
   readonly amount: Cents;
 }
@@ -115,6 +117,7 @@ export function createTransaction(input: {
   categoryId: CategoryId | null;
   accountId: AccountId;
   subEnvelopeId: SubEnvelopeId;
+  counterTransactionId?: TransactionId | null;
   amount: Cents;
 }): Transaction {
   return {
@@ -124,6 +127,7 @@ export function createTransaction(input: {
     categoryId: input.categoryId,
     accountId: input.accountId,
     subEnvelopeId: input.subEnvelopeId,
+    counterTransactionId: input.counterTransactionId ?? null,
     amount: input.amount,
   };
 }

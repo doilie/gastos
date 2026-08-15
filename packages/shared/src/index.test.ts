@@ -8,6 +8,7 @@ import * as currency from "./reference/currency";
 import * as envelope from "./reference/envelope";
 import * as transaction from "./ledger-core/transaction";
 import * as fundingSource from "./domain/funding-source";
+import * as transfer from "./domain/transfer";
 
 describe("@gastos/shared entry point", () => {
   it("exports SHARED_PACKAGE_NAME as a non-empty string", () => {
@@ -71,5 +72,14 @@ describe("@gastos/shared entry point", () => {
     expect(fundingSource).toBeDefined();
     expect(typeof fundingSource.fundingSourceFromAccount).toBe("function");
     expect(typeof fundingSource.fundingSourcesEqual).toBe("function");
+  });
+
+  it("re-exports the domain/transfer module through the package barrel", () => {
+    // Full behavioral coverage lives in src/domain/transfer.test.ts; this
+    // just proves the barrel export wiring stays intact.
+    expect(transfer).toBeDefined();
+    expect(typeof transfer.createTransferPair).toBe("function");
+    expect(typeof transfer.isPairedTransaction).toBe("function");
+    expect(typeof transfer.findCounterTransaction).toBe("function");
   });
 });

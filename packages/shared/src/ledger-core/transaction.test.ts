@@ -92,6 +92,7 @@ describe("createTransaction", () => {
       categoryId: null,
       accountId,
       subEnvelopeId,
+      counterTransactionId: null,
       amount: 1000,
     });
   });
@@ -113,10 +114,56 @@ describe("createTransaction", () => {
       categoryId,
       accountId,
       subEnvelopeId,
+      counterTransactionId: null,
       amount: -500,
     });
   });
 
+});
+
+describe("createTransaction counterTransactionId", () => {
+  const id = transactionIdFromString("txn-1");
+  const date = ledgerDateFromString("2024-06-01");
+  const accountId = accountIdFromString("acc-1");
+  const subEnvelopeId = subEnvelopeIdFromString("sub-1");
+  const categoryId = categoryIdFromString("cat-1");
+
+  it("defaults counterTransactionId to null when omitted", () => {
+    const transaction = createTransaction({
+      id,
+      date,
+      description: "Groceries",
+      categoryId,
+      accountId,
+      subEnvelopeId,
+      amount: centsFromInt(-500),
+    });
+    expect(transaction.counterTransactionId).toBeNull();
+  });
+
+  it("preserves an explicit counterTransactionId unchanged in the output", () => {
+    const counterTransactionId = transactionIdFromString("txn-2");
+    const transaction = createTransaction({
+      id,
+      date,
+      description: "Transfer",
+      categoryId: null,
+      accountId,
+      subEnvelopeId,
+      counterTransactionId,
+      amount: centsFromInt(1000),
+    });
+    expect(transaction).toEqual({
+      id,
+      date,
+      description: "Transfer",
+      categoryId: null,
+      accountId,
+      subEnvelopeId,
+      counterTransactionId,
+      amount: 1000,
+    });
+  });
 });
 
 describe("createTransaction description validation", () => {
