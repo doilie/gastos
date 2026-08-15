@@ -4,9 +4,11 @@ import { SHARED_PACKAGE_NAME } from "./index";
 import * as money from "./money/index";
 import * as account from "./reference/account";
 import * as category from "./reference/category";
+import * as creditCard from "./reference/credit-card";
 import * as currency from "./reference/currency";
 import * as envelope from "./reference/envelope";
 import * as transaction from "./ledger-core/transaction";
+import * as cardCycle from "./domain/card-cycle";
 import * as fundingSource from "./domain/funding-source";
 import * as transfer from "./domain/transfer";
 
@@ -81,5 +83,20 @@ describe("@gastos/shared entry point", () => {
     expect(typeof transfer.createTransferPair).toBe("function");
     expect(typeof transfer.isPairedTransaction).toBe("function");
     expect(typeof transfer.findCounterTransaction).toBe("function");
+  });
+
+  it("re-exports the reference/credit-card module through the package barrel", () => {
+    // Full behavioral coverage lives in src/reference/credit-card.test.ts;
+    // this just proves the barrel export wiring stays intact.
+    expect(creditCard).toBeDefined();
+    expect(typeof creditCard.creditCardIdFromString).toBe("function");
+    expect(typeof creditCard.createCreditCard).toBe("function");
+  });
+
+  it("re-exports the domain/card-cycle module through the package barrel", () => {
+    // Full behavioral coverage lives in src/domain/card-cycle.test.ts; this
+    // just proves the barrel export wiring stays intact.
+    expect(cardCycle).toBeDefined();
+    expect(typeof cardCycle.cardCycleContaining).toBe("function");
   });
 });

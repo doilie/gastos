@@ -9,9 +9,11 @@ export * from "./reference/currency";
 export * from "./reference/account";
 export * from "./reference/category";
 export * from "./reference/envelope";
+export * from "./reference/credit-card";
 export * from "./ledger-core/transaction";
 export * from "./domain/funding-source";
 export * from "./domain/transfer";
+export * from "./domain/card-cycle";
 
 /** Package identity marker, used to prove the workspace/import wiring works. */
 export const SHARED_PACKAGE_NAME = "@gastos/shared";
