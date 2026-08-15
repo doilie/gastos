@@ -35,6 +35,12 @@ lives in `packages/shared/src/domain/funding-source.ts` — a discriminated unio
 / `{kind:"envelope"}` / `{kind:"none"}`) modeling how a credit-card purchase gets paid (HLD module
 M4). Not yet wired into `Transaction`; that lands when Credit Card purchase modeling begins.
 
+Increment 7 (Domain layer, part 2) is complete: `Transaction` now carries a nullable
+`counterTransactionId` self-reference (the pairing mechanism, Ledger Core), and
+`packages/shared/src/domain/transfer.ts` adds `createTransferPair` (module M5) — builds two linked
+`Transaction` legs whose amounts always sum to zero, plus `isPairedTransaction`/
+`findCounterTransaction`. `FundingSource` still isn't wired into `Transaction`.
+
 "gastos" is Spanish for "expenses." It is a personal, single-user finance app intended to replace
 a 5-year-old, 24-sheet Excel workbook (see `req/accounts-xls-hld.md` and
 `req/what-i-want.txt` for the full spec and rationale).
