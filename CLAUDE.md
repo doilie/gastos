@@ -41,6 +41,12 @@ Increment 7 (Domain layer, part 2) is complete: `Transaction` now carries a null
 `Transaction` legs whose amounts always sum to zero, plus `isPairedTransaction`/
 `findCounterTransaction`. `FundingSource` still isn't wired into `Transaction`.
 
+Increment 8 (Credit Card, part 1) is complete: `CreditCard` (per-card statement cutoff day) lives in
+`packages/shared/src/reference/credit-card.ts`, and `cardCycleContaining` (billing-cycle window
+math, clamping short months and rolling year boundaries) lives in
+`packages/shared/src/domain/card-cycle.ts`. Purchase transactions, wiring `FundingSource` into
+settlement, and payment allocation are deferred to later increments.
+
 "gastos" is Spanish for "expenses." It is a personal, single-user finance app intended to replace
 a 5-year-old, 24-sheet Excel workbook (see `req/accounts-xls-hld.md` and
 `req/what-i-want.txt` for the full spec and rationale).
