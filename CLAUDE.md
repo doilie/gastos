@@ -6,8 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Increment 1 (foundation scaffold) is complete: pnpm workspace + Turborepo tooling, shared
 TypeScript/ESLint/Prettier config, and minimal skeletons for `apps/server`, `apps/mobile`, and
-`packages/shared` all exist and build/lint/typecheck cleanly. No domain logic, database, or auth
-exist yet — this is scaffolding only.
+`packages/shared` all exist and build/lint/typecheck cleanly.
+
+Increment 2 (money primitive) is complete: the branded `Cents` integer type and its arithmetic
+live in `packages/shared/src/money` (see Conventions below), with Vitest unit + fast-check
+property-based coverage. No other domain logic, database, or auth exist yet.
 
 "gastos" is Spanish for "expenses." It is a personal, single-user finance app intended to replace
 a 5-year-old, 24-sheet Excel workbook (see `req/accounts-xls-hld.md` and
@@ -85,10 +88,12 @@ packages/config     Shared ESLint (flat config), Prettier, and Knip config.
   None of the layer directories exist yet — see `packages/config/README.md` for the directory →
   layer mapping that will apply once `packages/shared/src/{reference,ledger-core,domain}` and
   `apps/server/src/reporting` are created.
-- **Money is always the branded `Cents` type** from `packages/shared/src/money` (not yet
-  implemented — currently a placeholder file). No raw `number` arithmetic on currency values, no
-  `parseFloat`/`Number()` on a money string outside the shared parser, no adding amounts across
-  currencies without an explicit `FxRate`.
+- **Money is always the branded `Cents` type** from `packages/shared/src/money`
+  (`centsFromInt`, `parseCents`/`formatCents`, `addCents`/`subtractCents`/`negateCents`/
+  `sumCents`, `multiplyCents` for splits — rounds half away from zero, `compareCents`/
+  `isZeroCents`). No raw `number` arithmetic on currency values, no `parseFloat`/`Number()` on a
+  money string outside the shared parser, no adding amounts across currencies without an explicit
+  `FxRate` (not yet implemented — future Reference-layer work).
 - **Balances are always derived** (SUM/GROUP BY over the transaction ledger), never stored as a
   column or duplicated field.
 - **No magic numbers** for cutoff day, payday, or currency codes — these belong in
