@@ -10,7 +10,13 @@ TypeScript/ESLint/Prettier config, and minimal skeletons for `apps/server`, `app
 
 Increment 2 (money primitive) is complete: the branded `Cents` integer type and its arithmetic
 live in `packages/shared/src/money` (see Conventions below), with Vitest unit + fast-check
-property-based coverage. No other domain logic, database, or auth exist yet.
+property-based coverage.
+
+Increment 3 (Reference layer, part 1) is complete: `Currency`, `Account`, and `Category` entities
+live in `packages/shared/src/reference` — branded id/code types with safe constructors, no stored
+balances. `Envelope`/`SubEnvelope` (including the always-present special "Spendable" envelope),
+`FxRate`, and payday/cut-off config are deferred to later increments. No database or auth exist
+yet — these are still in-memory types/validators only.
 
 "gastos" is Spanish for "expenses." It is a personal, single-user finance app intended to replace
 a 5-year-old, 24-sheet Excel workbook (see `req/accounts-xls-hld.md` and
