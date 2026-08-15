@@ -18,4 +18,11 @@ config.resolver.disableHierarchicalLookup = true;
 config.resolver.unstable_enableSymlinks = true;
 config.resolver.unstable_enablePackageExports = true;
 
+// Expo Router's require.context globs every .ts(x)/.js(x) file under app/,
+// including colocated *.test.tsx files, and would otherwise try to bundle
+// test-only deps (e.g. @testing-library/react-native, which pulls in Node's
+// `console` module) into the production/dev bundle. Block test files from
+// Metro's resolution; Jest resolves them independently via its own config.
+config.resolver.blockList = [/\.(test|spec)\.[jt]sx?$/];
+
 module.exports = config;
