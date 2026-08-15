@@ -7,6 +7,7 @@ import * as category from "./reference/category";
 import * as currency from "./reference/currency";
 import * as envelope from "./reference/envelope";
 import * as transaction from "./ledger-core/transaction";
+import * as fundingSource from "./domain/funding-source";
 
 describe("@gastos/shared entry point", () => {
   it("exports SHARED_PACKAGE_NAME as a non-empty string", () => {
@@ -62,5 +63,13 @@ describe("@gastos/shared entry point", () => {
     expect(transaction).toBeDefined();
     expect(typeof transaction.createTransaction).toBe("function");
     expect(typeof transaction.deriveAccountBalance).toBe("function");
+  });
+
+  it("re-exports the domain/funding-source module through the package barrel", () => {
+    // Full behavioral coverage lives in src/domain/funding-source.test.ts;
+    // this just proves the barrel export wiring stays intact.
+    expect(fundingSource).toBeDefined();
+    expect(typeof fundingSource.fundingSourceFromAccount).toBe("function");
+    expect(typeof fundingSource.fundingSourcesEqual).toBe("function");
   });
 });
