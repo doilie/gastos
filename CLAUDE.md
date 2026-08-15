@@ -27,8 +27,13 @@ Increment 5 (Ledger Core, part 1) is complete: `Transaction`, the ledger's singl
 lives in `packages/shared/src/ledger-core/transaction.ts` — sign convention (positive = credit,
 negative = debit), `LedgerDate` (validated real calendar dates), and derived account/sub-envelope
 balances (`deriveAccountBalance`/`deriveSubEnvelopeBalance`, summing transactions per decision A3).
-Paired postings/transfers and the credit-card `FundingSource` union are deferred to later
-increments. No database or auth exist yet — everything so far is in-memory types/validators only.
+Paired postings/transfers are deferred to a later increment. No database or auth exist yet —
+everything so far is in-memory types/validators only.
+
+Increment 6 (Domain layer, part 1) is complete: `FundingSource`, the first Domain-layer type,
+lives in `packages/shared/src/domain/funding-source.ts` — a discriminated union (`{kind:"account"}`
+/ `{kind:"envelope"}` / `{kind:"none"}`) modeling how a credit-card purchase gets paid (HLD module
+M4). Not yet wired into `Transaction`; that lands when Credit Card purchase modeling begins.
 
 "gastos" is Spanish for "expenses." It is a personal, single-user finance app intended to replace
 a 5-year-old, 24-sheet Excel workbook (see `req/accounts-xls-hld.md` and
