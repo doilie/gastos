@@ -5,6 +5,7 @@ import * as money from "./money/index";
 import * as account from "./reference/account";
 import * as category from "./reference/category";
 import * as currency from "./reference/currency";
+import * as envelope from "./reference/envelope";
 
 describe("@gastos/shared entry point", () => {
   it("exports SHARED_PACKAGE_NAME as a non-empty string", () => {
@@ -43,5 +44,14 @@ describe("@gastos/shared entry point", () => {
     expect(category).toBeDefined();
     expect(typeof category.categoryIdFromString).toBe("function");
     expect(typeof category.createCategory).toBe("function");
+  });
+
+  it("re-exports the reference/envelope module through the package barrel", () => {
+    // Full behavioral coverage lives in src/reference/envelope.test.ts; this
+    // just proves the barrel export wiring stays intact.
+    expect(envelope).toBeDefined();
+    expect(typeof envelope.createEnvelopeGroup).toBe("function");
+    expect(typeof envelope.createSubEnvelope).toBe("function");
+    expect(typeof envelope.createSpendableEnvelope).toBe("function");
   });
 });
