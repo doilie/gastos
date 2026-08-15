@@ -21,8 +21,14 @@ money-holding leaf, allocated over one or more accounts per decision A1) also li
 `packages/shared/src/reference/envelope.ts`. The always-present special "Spendable" envelope is
 modeled as a reserved `SubEnvelope` singleton (`SPENDABLE_ENVELOPE_ID`/`createSpendableEnvelope`),
 not a separate type. This completes the Reference layer's core entities — `FxRate` and
-payday/cut-off config are deferred to later increments. No database or auth exist yet — these are
-still in-memory types/validators only.
+payday/cut-off config are deferred to later increments.
+
+Increment 5 (Ledger Core, part 1) is complete: `Transaction`, the ledger's single write surface,
+lives in `packages/shared/src/ledger-core/transaction.ts` — sign convention (positive = credit,
+negative = debit), `LedgerDate` (validated real calendar dates), and derived account/sub-envelope
+balances (`deriveAccountBalance`/`deriveSubEnvelopeBalance`, summing transactions per decision A3).
+Paired postings/transfers and the credit-card `FundingSource` union are deferred to later
+increments. No database or auth exist yet — everything so far is in-memory types/validators only.
 
 "gastos" is Spanish for "expenses." It is a personal, single-user finance app intended to replace
 a 5-year-old, 24-sheet Excel workbook (see `req/accounts-xls-hld.md` and
