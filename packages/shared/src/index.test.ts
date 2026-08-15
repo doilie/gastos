@@ -10,11 +10,12 @@ describe("@gastos/shared entry point", () => {
     expect(SHARED_PACKAGE_NAME).toBe("@gastos/shared");
   });
 
-  it("imports the money placeholder module without throwing", () => {
-    // Foundation scaffold only: money/index.ts is currently an empty
-    // placeholder (`export {}`). This just proves the module resolves and
-    // loads cleanly so real Cents/money exports can land here later without
-    // breaking the import graph.
+  it("re-exports the money module through the package barrel", () => {
+    // Full behavioral coverage of the money primitives lives in
+    // src/money/index.test.ts; this just proves the barrel export wiring
+    // (`export * from "./money/index"` in index.ts) stays intact.
     expect(money).toBeDefined();
+    expect(typeof money.parseCents).toBe("function");
+    expect(typeof money.formatCents).toBe("function");
   });
 });
