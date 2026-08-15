@@ -118,3 +118,12 @@ export function cardCycleContaining(cutoffDay: number, date: LedgerDate): CardCy
     ? cycleEndingThisMonth(cutoffDay, year, month)
     : cycleEndingNextMonth(cutoffDay, year, month);
 }
+
+/**
+ * True iff `date` falls within `cycle`'s window, inclusive on both ends.
+ * `LedgerDate` is always a zero-padded `YYYY-MM-DD` string, so lexicographic
+ * string comparison is equivalent to chronological comparison here.
+ */
+export function isDateWithinCardCycle(date: LedgerDate, cycle: CardCycle): boolean {
+  return cycle.start <= date && date <= cycle.end;
+}

@@ -2,7 +2,7 @@ import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
 import { ledgerDateFromString } from "../ledger-core/transaction";
-import { cardCycleContaining } from "./card-cycle";
+import { cardCycleContaining, isDateWithinCardCycle } from "./card-cycle";
 
 describe("cardCycleContaining general behavior", () => {
   it("a date on or before the cutoff falls in the cycle ending this month's cutoff", () => {
@@ -79,6 +79,30 @@ describe("cardCycleContaining validation", () => {
     ["negative (-1)", -1],
   ])("throws on an invalid cutoffDay: %s (%p)", (_label, cutoffDay) => {
     expect(() => cardCycleContaining(cutoffDay, ledgerDateFromString("2024-06-10"))).toThrow();
+  });
+});
+
+describe("isDateWithinCardCycle", () => {
+  const cycle = cardCycleContaining(17, ledgerDateFromString("2024-06-10"));
+
+  it("a date equal to cycle.start is within the cycle", () => {
+    expect(isDateWithinCardCycle(cycle.start, cycle)).toBe(true);
+  });
+
+  it("a date equal to cycle.end is within the cycle", () => {
+    expect(isDateWithinCardCycle(cycle.end, cycle)).toBe(true);
+  });
+
+  it("a date strictly between cycle.start and cycle.end is within the cycle", () => {
+    expect(isDateWithinCardCycle(ledgerDateFromString("2024-06-01"), cycle)).toBe(true);
+  });
+
+  it("a date one day before cycle.start is not within the cycle", () => {
+    expect(isDateWithinCardCycle(ledgerDateFromString("2024-05-17"), cycle)).toBe(false);
+  });
+
+  it("a date one day after cycle.end is not within the cycle", () => {
+    expect(isDateWithinCardCycle(ledgerDateFromString("2024-06-18"), cycle)).toBe(false);
   });
 });
 

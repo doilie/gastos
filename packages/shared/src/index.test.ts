@@ -9,6 +9,7 @@ import * as currency from "./reference/currency";
 import * as envelope from "./reference/envelope";
 import * as transaction from "./ledger-core/transaction";
 import * as cardCycle from "./domain/card-cycle";
+import * as cardPurchase from "./domain/card-purchase";
 import * as fundingSource from "./domain/funding-source";
 import * as transfer from "./domain/transfer";
 
@@ -92,11 +93,21 @@ describe("@gastos/shared entry point", () => {
     expect(typeof creditCard.creditCardIdFromString).toBe("function");
     expect(typeof creditCard.createCreditCard).toBe("function");
   });
+});
 
+describe("@gastos/shared entry point (credit-card domain)", () => {
   it("re-exports the domain/card-cycle module through the package barrel", () => {
     // Full behavioral coverage lives in src/domain/card-cycle.test.ts; this
     // just proves the barrel export wiring stays intact.
     expect(cardCycle).toBeDefined();
     expect(typeof cardCycle.cardCycleContaining).toBe("function");
+  });
+
+  it("re-exports the domain/card-purchase module through the package barrel", () => {
+    // Full behavioral coverage lives in src/domain/card-purchase.test.ts; this
+    // just proves the barrel export wiring stays intact.
+    expect(cardPurchase).toBeDefined();
+    expect(typeof cardPurchase.createCardPurchase).toBe("function");
+    expect(typeof cardPurchase.sumCardPurchasesInCycle).toBe("function");
   });
 });

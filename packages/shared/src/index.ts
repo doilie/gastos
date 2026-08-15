@@ -14,6 +14,7 @@ export * from "./ledger-core/transaction";
 export * from "./domain/funding-source";
 export * from "./domain/transfer";
 export * from "./domain/card-cycle";
+export * from "./domain/card-purchase";
 
 /** Package identity marker, used to prove the workspace/import wiring works. */
 export const SHARED_PACKAGE_NAME = "@gastos/shared";
