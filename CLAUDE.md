@@ -47,6 +47,13 @@ math, clamping short months and rolling year boundaries) lives in
 `packages/shared/src/domain/card-cycle.ts`. Purchase transactions, wiring `FundingSource` into
 settlement, and payment allocation are deferred to later increments.
 
+Increment 9 (Credit Card, part 2) is complete: `CardPurchase`
+(`packages/shared/src/domain/card-purchase.ts`) records an individual card expense — a positive
+amount owed plus an optional `FundingSource` (credit-card budget, another sub-envelope, or
+unassigned). `sumCardPurchasesInCycle` totals purchases for a billing cycle, built on the new
+`isDateWithinCardCycle` helper in `card-cycle.ts`. Wiring a funded purchase into an actual ledger
+`Transaction` and the multi-source "Settle cycle" payment-allocation flow are still deferred.
+
 "gastos" is Spanish for "expenses." It is a personal, single-user finance app intended to replace
 a 5-year-old, 24-sheet Excel workbook (see `req/accounts-xls-hld.md` and
 `req/what-i-want.txt` for the full spec and rationale).
