@@ -14,9 +14,15 @@ property-based coverage.
 
 Increment 3 (Reference layer, part 1) is complete: `Currency`, `Account`, and `Category` entities
 live in `packages/shared/src/reference` — branded id/code types with safe constructors, no stored
-balances. `Envelope`/`SubEnvelope` (including the always-present special "Spendable" envelope),
-`FxRate`, and payday/cut-off config are deferred to later increments. No database or auth exist
-yet — these are still in-memory types/validators only.
+balances.
+
+Increment 4 (Reference layer, part 2) is complete: `EnvelopeGroup` and `SubEnvelope` (the
+money-holding leaf, allocated over one or more accounts per decision A1) also live in
+`packages/shared/src/reference/envelope.ts`. The always-present special "Spendable" envelope is
+modeled as a reserved `SubEnvelope` singleton (`SPENDABLE_ENVELOPE_ID`/`createSpendableEnvelope`),
+not a separate type. This completes the Reference layer's core entities — `FxRate` and
+payday/cut-off config are deferred to later increments. No database or auth exist yet — these are
+still in-memory types/validators only.
 
 "gastos" is Spanish for "expenses." It is a personal, single-user finance app intended to replace
 a 5-year-old, 24-sheet Excel workbook (see `req/accounts-xls-hld.md` and
@@ -100,6 +106,12 @@ packages/config     Shared ESLint (flat config), Prettier, and Knip config.
   `isZeroCents`). No raw `number` arithmetic on currency values, no `parseFloat`/`Number()` on a
   money string outside the shared parser, no adding amounts across currencies without an explicit
   `FxRate` (not yet implemented — future Reference-layer work).
+- **Reference entities** (`packages/shared/src/reference/`): `Currency`/`Account`/`Category`
+  (`currency.ts`/`account.ts`/`category.ts`) and `EnvelopeGroup`/`SubEnvelope`
+  (`envelope.ts`) — all branded id types with `xFromString` safe constructors and a `createX`
+  factory that trims/validates. `Account` and `SubEnvelope` deliberately carry no balance field
+  (decision A3). The always-present "Spendable" envelope is `createSpendableEnvelope`, a reserved
+  `SubEnvelope` singleton (`SPENDABLE_ENVELOPE_ID`), not a separate type.
 - **Balances are always derived** (SUM/GROUP BY over the transaction ledger), never stored as a
   column or duplicated field.
 - **No magic numbers** for cutoff day, payday, or currency codes — these belong in
