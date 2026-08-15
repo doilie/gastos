@@ -97,6 +97,13 @@ packages/config     Shared ESLint (flat config), Prettier, and Knip config.
   10, and `max-lines-per-function` capped at 60 (see `packages/config/eslint.config.mjs`).
 - Package scope is `@gastos/*` (`@gastos/shared`, `@gastos/config`, `@gastos/server`,
   `@gastos/mobile`).
+- **Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)**
+  (`feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`, etc.).
+- **Once an increment's exit criteria are verified (lint/typecheck/build/test clean),
+  commit the changes and push to `origin`.** This is an orchestrator-level action, not
+  something `gastos-coder`/`gastos-tester` do themselves — per the delegation protocol,
+  neither agent self-certifies its own work as done, so committing/pushing happens only
+  after independent verification, by whoever is running the orchestrator session.
 
 ## Architecture reference
 
