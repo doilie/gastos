@@ -54,6 +54,13 @@ unassigned). `sumCardPurchasesInCycle` totals purchases for a billing cycle, bui
 `isDateWithinCardCycle` helper in `card-cycle.ts`. Wiring a funded purchase into an actual ledger
 `Transaction` and the multi-source "Settle cycle" payment-allocation flow are still deferred.
 
+Increment 10 (UI shell) is complete: `apps/mobile` now has a real 6-tab Expo Router shell (Today,
+Envelopes, Cards, Budget, Reports, More — `apps/mobile/app/(tabs)/`), replacing the Increment-1
+placeholder screen. Screens are stubs sharing one `PlaceholderScreen` component, no live data yet
+(`apps/server` has no domain tRPC router). `react-native-web` was added so the app also runs as a
+static web export. Jest + React Native Testing Library (`jest-expo` preset) were set up for
+`apps/mobile` for the first time, with smoke tests for every screen.
+
 "gastos" is Spanish for "expenses." It is a personal, single-user finance app intended to replace
 a 5-year-old, 24-sheet Excel workbook (see `req/accounts-xls-hld.md` and
 `req/what-i-want.txt` for the full spec and rationale).
@@ -67,7 +74,7 @@ pnpm install                          # install all workspaces
 pnpm lint                             # turbo run lint      (all packages)
 pnpm typecheck                        # turbo run typecheck (all packages)
 pnpm build                            # turbo run build     (all packages)
-pnpm test                             # turbo run test      (all packages; no test files yet)
+pnpm test                             # turbo run test      (all packages)
 
 pnpm --filter @gastos/server dev      # Fastify + tRPC dev server (tsx watch)
 pnpm --filter @gastos/mobile start    # Expo dev server
@@ -121,6 +128,20 @@ packages/config     Shared ESLint (flat config), Prettier, and Knip config.
   will drift out of Expo SDK compatibility (this bit us once during scaffolding: a bare
   `pnpm add react-native` pulled a newer react-native than Expo SDK 57's bundled Metro config
   supported, and the bundler failed with `Cannot find module '.../react-native/rn-get-polyfills'`).
+- **Mobile testing:** `apps/mobile` uses Jest with the `jest-expo` preset (see the `"jest"` key in
+  `apps/mobile/package.json`) plus React Native Testing Library. Install `jest`/`jest-expo`
+  together via `expo install jest-expo jest` — installing a bare `jest` separately can resolve a
+  major version `jest-expo` isn't built against (its own `dependencies` pin `jest-runtime`/
+  `jest-mock`/etc. to a specific major), causing runtime errors like `this._moduleMocker
+  .clearMocksOnScope is not a function`.
+- `apps/mobile/metro.config.js`'s `resolver.blockList` excludes `*.test.tsx`/`*.spec.tsx` files
+  from Metro's bundle. Expo Router's `require.context` globs every route candidate under `app/`,
+  including colocated test files, and would otherwise try to bundle test-only deps (e.g.
+  `@testing-library/react-native`) into the production/dev bundle. This only affects Metro; Jest
+  resolves test files independently via its own config.
+- `packages/config/knip.json`'s `apps/mobile` entry has `"ignoreDependencies": ["@gastos/shared"]`
+  — it's genuinely unused by today's stub screens (per Increment 10) but deliberately pre-declared
+  for the data-wiring increments to come. Remove the ignore once a screen actually imports it.
 
 ## Conventions
 
