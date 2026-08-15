@@ -5,6 +5,9 @@
 // domain logic yet.
 
 export * from "./money/index";
+export * from "./reference/currency";
+export * from "./reference/account";
+export * from "./reference/category";
 
 /** Package identity marker, used to prove the workspace/import wiring works. */
 export const SHARED_PACKAGE_NAME = "@gastos/shared";
