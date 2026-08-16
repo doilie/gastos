@@ -4,7 +4,7 @@
     "lib": ["ES2022", "DOM"],
     "jsx": "react-jsx",
     "noEmit": true,
-    "types": ["jest"]
+    "types": ["jest", "node"]
   },
   "include": ["app"]
 }

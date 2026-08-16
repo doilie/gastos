@@ -4,9 +4,14 @@ import type { ReactElement } from "react";
 import BudgetScreen from "./budget";
 import CardsScreen from "./cards";
 import EnvelopesScreen from "./envelopes";
-import TodayScreen from "./index";
 import MoreScreen from "./more";
 import ReportsScreen from "./reports";
+
+// Today (./index) is intentionally NOT covered here: it now calls
+// trpc.ledger.spendableBalance.useQuery() and renders one of three
+// network-dependent states (loading/error/success) instead of a static
+// PlaceholderScreen title+subtitle, so it can't share this generic table.
+// Its dedicated coverage lives in ./index.test.tsx.
 
 type ScreenCase = [
   name: string,
@@ -16,12 +21,6 @@ type ScreenCase = [
 ];
 
 const cases: ScreenCase[] = [
-  [
-    "Today",
-    TodayScreen,
-    "Today",
-    "Spendable balance and quick-add — coming soon",
-  ],
   [
     "Envelopes",
     EnvelopesScreen,

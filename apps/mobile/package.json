@@ -14,6 +14,9 @@
   "dependencies": {
     "@expo/metro-runtime": "^57.0.10",
     "@gastos/shared": "workspace:*",
+    "@tanstack/react-query": "^5.101.4",
+    "@trpc/client": "^11.18.0",
+    "@trpc/react-query": "^11.18.0",
     "expo": "^57.0.13",
     "expo-router": "^57.0.13",
     "expo-system-ui": "^57.0.2",
@@ -25,8 +28,10 @@
   },
   "devDependencies": {
     "@gastos/config": "workspace:*",
+    "@gastos/server": "workspace:*",
     "@testing-library/react-native": "^14.0.1",
     "@types/jest": "^29.5.14",
+    "@types/node": "^26.2.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "babel-preset-expo": "^57.0.6",
