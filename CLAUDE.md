@@ -100,6 +100,15 @@ of parallel queries — never call a tRPC query hook in a `.map()`/loop directly
 Spendable envelope is excluded (already shown on Today). Cards/Budget/Reports/More are still
 `PlaceholderScreen` stubs.
 
+`apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
+exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
+context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
+but a browser blocks the fetch, which surfaced as Today/Envelopes stuck on "Loading…" forever. If
+a screen is stuck loading, check (1) is `apps/server`'s dev server actually running
+(`pnpm --filter @gastos/server dev`), then (2) does the response carry
+`access-control-allow-origin` for a cross-origin request — `apps/server/src/index.test.ts` guards
+against a regression of the latter.
+
 Increment 13 (server layer, part 1) is complete: `apps/server` now has an in-memory seed store
 (`apps/server/src/store.ts` — no database, resets on restart) built from `@gastos/shared`'s
 factories, and a read-only `reference` tRPC router (`apps/server/src/routers/reference.ts`)
