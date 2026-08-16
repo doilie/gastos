@@ -116,9 +116,13 @@ deliberately unresolved — raw calendar days only. `BudgetLine`/allocation logi
 sub-envelope"), and `applyBudgetLine` turns a confirmed line into a real ledger `Transaction`,
 mirroring `CardPurchase`/`settleCardPurchase`'s caller-supplies-the-account-explicitly pattern but
 without a `FundingSource` union (a budget line always targets exactly one sub-envelope). Unlike
-`settleCardPurchase`, it does not negate the amount — allocating is a credit. A batch
-"confirm a whole payday's allocations at once" function (the `settleCardCycle` equivalent) is the
-remaining piece before this thread reaches the UI.
+`settleCardPurchase`, it does not negate the amount — allocating is a credit. `applyBudgetLines`
+(same file) is the batch version — mirrors `settleCardCycle`'s resolve-and-report pattern, but
+with no automatic "unfunded"-style skip (every `BudgetLine` is inherently ready to apply, unlike a
+`CardPurchase`) and no built-in period/payday filtering (the caller pre-scopes the list). This
+completes the Budget thread's core logic: `PaydaySchedule` → `BudgetPeriod` → `PaydayWindow` →
+`BudgetLine`/`applyBudgetLine`/`applyBudgetLines`. Server routers and the Budget tab UI are the
+remaining work before this thread reaches the app.
 
 Increment 23 continues the Budget thread: `BudgetPeriod`
 (`packages/shared/src/domain/budget-period.ts`) is the calendar-month budgeting window — unlike a
