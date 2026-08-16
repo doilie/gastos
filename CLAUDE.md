@@ -97,8 +97,14 @@ Increment 20 (mobile data wiring, part 3) is complete: the Envelopes tab
 (`apps/mobile/app/(tabs)/envelopes.tsx`) shows envelope groups → sub-envelopes, each with its
 derived balance fetched per-item via `trpc.useQueries` (the correct pattern for a dynamic number
 of parallel queries — never call a tRPC query hook in a `.map()`/loop directly). The reserved
-Spendable envelope is excluded (already shown on Today). Cards/Budget/Reports/More are still
-`PlaceholderScreen` stubs.
+Spendable envelope is excluded (already shown on Today).
+
+Increment 21 (mobile data wiring, part 4) is complete: the Cards tab
+(`apps/mobile/app/(tabs)/cards.tsx`) shows each `CreditCard`'s current billing cycle — date range,
+total spend, and purchase list — computed client-side via the existing pure `cardCycleContaining`/
+`sumCardPurchasesInCycle`/`isDateWithinCardCycle` functions (no new server endpoints). Drilling
+into past cycles and settlement/payment-allocation UI are later increments. Budget/Reports/More
+are still `PlaceholderScreen` stubs.
 
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
