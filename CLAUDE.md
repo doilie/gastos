@@ -62,6 +62,15 @@ explicitly, and the function validates them against the purchase's declared `Fun
 than deriving either field. The multi-source "Settle cycle" payment-allocation flow (splitting a
 whole statement total across purchases/sources) is still deferred.
 
+Increment 12 (Credit Card, part 4) is complete: `settleCardCycle`
+(`packages/shared/src/domain/card-cycle-settlement.ts`) is the batch "Settle cycle" flow —
+attempts `settleCardPurchase` for every in-cycle purchase, reporting `settledTransactions` versus
+`skippedPurchases` (unfunded, or deferred by the caller). Since `CardPurchase` carries exactly one
+`FundingSource` (funding is "per expense," not split within a purchase), the HLD's "payment split"
+is interpreted as a batch operation across multiple purchases in a cycle, each independently
+funded — this completes the credit-card settlement thread (`CreditCard`, `CardCycle`,
+`CardPurchase`, `settleCardPurchase`, `settleCardCycle`).
+
 Increment 10 (UI shell) is complete: `apps/mobile` now has a real 6-tab Expo Router shell (Today,
 Envelopes, Cards, Budget, Reports, More — `apps/mobile/app/(tabs)/`), replacing the Increment-1
 placeholder screen. Screens are stubs sharing one `PlaceholderScreen` component, no live data yet
