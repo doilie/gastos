@@ -1,5 +1,5 @@
 import fc from "fast-check";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { centsFromInt } from "../money";
 import { accountIdFromString } from "../reference/account";
@@ -12,8 +12,11 @@ import { ledgerDateFromString, transactionIdFromString } from "../ledger-core/tr
 import type { BudgetPeriod } from "./budget-period";
 import {
   applyBudgetLine,
+  applyBudgetLines,
   budgetLineIdFromString,
   createBudgetLine,
+  type ApplyBudgetLineInput,
+  type BudgetLine,
 } from "./budget-line";
 
 const budgetPeriod: BudgetPeriod = { year: 2024, month: 5 };
@@ -207,6 +210,181 @@ describe("applyBudgetLine (rejections)", () => {
         accountId: accountZ, // not in [accountX, accountY]
         fundingSubEnvelope: sharedSubEnvelope,
       }),
+    ).toThrow();
+  });
+});
+
+describe("applyBudgetLines (empty input)", () => {
+  it("returns empty results for an empty line list", () => {
+    const result = applyBudgetLines([], () => null);
+    expect(result).toEqual({ appliedTransactions: [], skippedLines: [] });
+  });
+});
+
+describe("applyBudgetLines (unconditional resolver calls)", () => {
+  it("calls resolveApplyInput once per line, unconditionally (no automatic skip)", () => {
+    const sharedSubEnvelope = createSubEnvelope({
+      id: subEnvelopeIdFromString("sub-unconditional"),
+      name: "Unconditional Envelope",
+      groupId,
+      accountIds: [accountX],
+    });
+
+    const lineA = createBudgetLine(
+      baseInput({ id: budgetLineIdFromString("line-a"), subEnvelopeId: sharedSubEnvelope.id }),
+    );
+    const lineB = createBudgetLine(
+      baseInput({ id: budgetLineIdFromString("line-b"), subEnvelopeId: sharedSubEnvelope.id }),
+    );
+    const lineC = createBudgetLine(
+      baseInput({ id: budgetLineIdFromString("line-c"), subEnvelopeId: sharedSubEnvelope.id }),
+    );
+    const lines = [lineA, lineB, lineC];
+
+    const resolver = vi.fn(
+      (line: BudgetLine): ApplyBudgetLineInput => ({
+        id: transactionIdFromString(`txn-uncond-${line.id}`),
+        accountId: accountX,
+        fundingSubEnvelope: sharedSubEnvelope,
+      }),
+    );
+
+    const result = applyBudgetLines(lines, resolver);
+
+    expect(resolver).toHaveBeenCalledTimes(lines.length);
+    expect(result.appliedTransactions).toHaveLength(3);
+    expect(result.skippedLines).toEqual([]);
+  });
+});
+
+describe("applyBudgetLines (resolver defers with null)", () => {
+  it("defers a line to skippedLines when resolveApplyInput returns null", () => {
+    const line = createBudgetLine(baseInput());
+
+    const result = applyBudgetLines([line], () => null);
+
+    expect(result.skippedLines).toEqual([line]);
+    expect(result.appliedTransactions).toEqual([]);
+  });
+});
+
+describe("applyBudgetLines (successful application)", () => {
+  it("applies a funded line whose resolver returns a valid input", () => {
+    const sharedSubEnvelope = createSubEnvelope({
+      id: subEnvelopeIdFromString("sub-applied"),
+      name: "Applied Envelope",
+      groupId,
+      accountIds: [accountX, accountY],
+    });
+
+    const line = createBudgetLine(
+      baseInput({ subEnvelopeId: sharedSubEnvelope.id, amount: centsFromInt(1500) }),
+    );
+
+    const result = applyBudgetLines([line], () => ({
+      id: transactionIdFromString("txn-applied"),
+      accountId: accountY,
+      fundingSubEnvelope: sharedSubEnvelope,
+    }));
+
+    expect(result.skippedLines).toEqual([]);
+    expect(result.appliedTransactions).toHaveLength(1);
+    expect(result.appliedTransactions[0]).toEqual({
+      id: transactionIdFromString("txn-applied"),
+      date: line.paydayDate,
+      description: line.description,
+      categoryId: null,
+      accountId: accountY,
+      subEnvelopeId: line.subEnvelopeId,
+      amount: 1500,
+      counterTransactionId: null,
+    });
+  });
+});
+
+describe("applyBudgetLines (mixed batch)", () => {
+  it("correctly partitions a mixed batch: two applied, one deferred, in input order", () => {
+    const sharedSubEnvelope = createSubEnvelope({
+      id: subEnvelopeIdFromString("sub-mixed"),
+      name: "Mixed Envelope",
+      groupId,
+      accountIds: [accountX, accountY],
+    });
+
+    const applied1 = createBudgetLine(
+      baseInput({
+        id: budgetLineIdFromString("line-mix-applied-1"),
+        subEnvelopeId: sharedSubEnvelope.id,
+        amount: centsFromInt(1000),
+      }),
+    );
+    const deferred = createBudgetLine(
+      baseInput({
+        id: budgetLineIdFromString("line-mix-deferred"),
+        subEnvelopeId: sharedSubEnvelope.id,
+        amount: centsFromInt(2000),
+      }),
+    );
+    const applied2 = createBudgetLine(
+      baseInput({
+        id: budgetLineIdFromString("line-mix-applied-2"),
+        subEnvelopeId: sharedSubEnvelope.id,
+        amount: centsFromInt(3000),
+      }),
+    );
+
+    const resolver = (line: BudgetLine): ApplyBudgetLineInput | null => {
+      if (line.id === applied1.id) {
+        return {
+          id: transactionIdFromString("txn-mix-applied-1"),
+          accountId: accountX,
+          fundingSubEnvelope: sharedSubEnvelope,
+        };
+      }
+      if (line.id === applied2.id) {
+        return {
+          id: transactionIdFromString("txn-mix-applied-2"),
+          accountId: accountY,
+          fundingSubEnvelope: sharedSubEnvelope,
+        };
+      }
+      return null;
+    };
+
+    const result = applyBudgetLines([applied1, deferred, applied2], resolver);
+
+    expect(result.appliedTransactions).toHaveLength(2);
+    expect(result.appliedTransactions[0]?.id).toBe(transactionIdFromString("txn-mix-applied-1"));
+    expect(result.appliedTransactions[0]?.amount).toBe(1000);
+    expect(result.appliedTransactions[1]?.id).toBe(transactionIdFromString("txn-mix-applied-2"));
+    expect(result.appliedTransactions[1]?.amount).toBe(3000);
+    expect(result.skippedLines).toEqual([deferred]);
+  });
+});
+
+describe("applyBudgetLines (propagates applyBudgetLine errors)", () => {
+  it("propagates applyBudgetLine's validation error when the resolver returns a mismatched fundingSubEnvelope", () => {
+    const targetSubEnvelope = createSubEnvelope({
+      id: subEnvelopeIdFromString("sub-target-batch"),
+      name: "Target Envelope Batch",
+      groupId,
+      accountIds: [accountX],
+    });
+    const unrelatedSubEnvelope = createSubEnvelope({
+      id: subEnvelopeIdFromString("sub-unrelated-batch"),
+      name: "Unrelated Envelope Batch",
+      groupId,
+      accountIds: [accountX],
+    });
+
+    const line = createBudgetLine(baseInput({ subEnvelopeId: targetSubEnvelope.id }));
+
+    expect(() =>
+      applyBudgetLines([line], () => ({
+        id: transactionIdFromString("txn-mismatch"),
+        accountId: accountX,
+        fundingSubEnvelope: unrelatedSubEnvelope,
+      })),
     ).toThrow();
   });
 });

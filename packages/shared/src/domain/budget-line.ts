@@ -136,3 +136,54 @@ export function applyBudgetLine(line: BudgetLine, input: ApplyBudgetLineInput): 
     amount: line.amount,
   });
 }
+
+/**
+ * Result of a batch "apply lines" attempt (the `BudgetLine` equivalent of
+ * `CardCycleSettlementResult` from `settleCardCycle`).
+ */
+export interface BudgetLineApplicationResult {
+  /** Ledger transactions produced for lines that were successfully applied. */
+  readonly appliedTransactions: readonly Transaction[];
+  /** Lines the caller chose to defer (its resolver returned `null`), not an error. */
+  readonly skippedLines: readonly BudgetLine[];
+}
+
+/**
+ * Attempts to apply every line in `lines`. For each line,
+ * `resolveApplyInput` is asked for the concrete `ApplyBudgetLineInput` to
+ * apply it with; returning `null` defers that line (pushed onto
+ * `skippedLines`, not an error).
+ *
+ * Unlike `settleCardCycle`, there is no automatic "unfunded"-style skip
+ * here: every `BudgetLine` is inherently ready to apply once it exists (it
+ * has no `FundingSource` that can be `"none"` the way a `CardPurchase`
+ * does), so `resolveApplyInput` is always called. This function also does
+ * not filter `lines` by period/payday the way `settleCardCycle` filters
+ * purchases by `CardCycle` — the caller is expected to already pass in
+ * whatever pre-scoped list of lines it wants to attempt. Both omissions are
+ * deliberate simplifications versus the Credit Card thread's batch
+ * function, not oversights.
+ *
+ * Any `ApplyBudgetLineInput` returned by `resolveApplyInput` is expected to
+ * be consistent with the line's declared `subEnvelopeId`; `applyBudgetLine`
+ * is allowed to throw if it isn't — that's a caller bug, not a "couldn't
+ * apply yet" case, so it is not caught here.
+ */
+export function applyBudgetLines(
+  lines: readonly BudgetLine[],
+  resolveApplyInput: (line: BudgetLine) => ApplyBudgetLineInput | null,
+): BudgetLineApplicationResult {
+  const appliedTransactions: Transaction[] = [];
+  const skippedLines: BudgetLine[] = [];
+
+  for (const line of lines) {
+    const input = resolveApplyInput(line);
+    if (input === null) {
+      skippedLines.push(line);
+      continue;
+    }
+    appliedTransactions.push(applyBudgetLine(line, input));
+  }
+
+  return { appliedTransactions, skippedLines };
+}
