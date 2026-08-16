@@ -1,4 +1,4 @@
-import { PlaceholderScreen } from "./_components/PlaceholderScreen";
+import { PlaceholderScreen } from "../../components/PlaceholderScreen";
 
 export default function TodayScreen() {
   return (
