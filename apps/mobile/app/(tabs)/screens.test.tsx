@@ -1,7 +1,6 @@
 import { render } from "@testing-library/react-native";
 import type { ReactElement } from "react";
 
-import BudgetScreen from "./budget";
 import MoreScreen from "./more";
 import ReportsScreen from "./reports";
 
@@ -21,6 +20,12 @@ import ReportsScreen from "./reports";
 // trpc.cards.creditCards.useQuery()/cardPurchases.useQuery() and renders
 // network-dependent states instead of a static PlaceholderScreen
 // title+subtitle. Its dedicated coverage lives in ./cards.test.tsx.
+//
+// Budget (./budget) is likewise intentionally NOT covered here: it now calls
+// trpc.budget.paydaySchedules.useQuery()/budgetLines.useQuery()/
+// trpc.reference.subEnvelopes.useQuery() and renders network-dependent
+// states instead of a static PlaceholderScreen title+subtitle. Its dedicated
+// coverage lives in ./budget.test.tsx.
 
 type ScreenCase = [
   name: string,
@@ -30,7 +35,6 @@ type ScreenCase = [
 ];
 
 const cases: ScreenCase[] = [
-  ["Budget", BudgetScreen, "Budget", "Payday allocation — coming soon"],
   [
     "Reports",
     ReportsScreen,
