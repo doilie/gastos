@@ -93,6 +93,13 @@ Spendable's linked accounts to post against (the first one — picking among sev
 On success, invalidates `ledger.spendableBalance` via `trpc.useUtils()` so the balance updates
 immediately.
 
+Increment 20 (mobile data wiring, part 3) is complete: the Envelopes tab
+(`apps/mobile/app/(tabs)/envelopes.tsx`) shows envelope groups → sub-envelopes, each with its
+derived balance fetched per-item via `trpc.useQueries` (the correct pattern for a dynamic number
+of parallel queries — never call a tRPC query hook in a `.map()`/loop directly). The reserved
+Spendable envelope is excluded (already shown on Today). Cards/Budget/Reports/More are still
+`PlaceholderScreen` stubs.
+
 Increment 13 (server layer, part 1) is complete: `apps/server` now has an in-memory seed store
 (`apps/server/src/store.ts` — no database, resets on restart) built from `@gastos/shared`'s
 factories, and a read-only `reference` tRPC router (`apps/server/src/routers/reference.ts`)
