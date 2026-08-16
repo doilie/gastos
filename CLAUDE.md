@@ -85,6 +85,12 @@ exposing `Account`/`Category`/`EnvelopeGroup`/`SubEnvelope` as no-input queries.
 seeded but not yet exposed by any router; balance queries and all mutation procedures are deferred
 to later increments.
 
+Increment 14 (server layer, part 2) is complete: a read-only `ledger` tRPC router
+(`apps/server/src/routers/ledger.ts`) exposes the `Transaction` list and the Spendable envelope's
+derived balance (`deriveSubEnvelopeBalance`) as no-input queries — the number the Today screen
+needs. Parameterized balance queries (per-account, per-sub-envelope) need Zod input validation, a
+first for this codebase, and are deferred along with all mutation procedures.
+
 "gastos" is Spanish for "expenses." It is a personal, single-user finance app intended to replace
 a 5-year-old, 24-sheet Excel workbook (see `req/accounts-xls-hld.md` and
 `req/what-i-want.txt` for the full spec and rationale).
