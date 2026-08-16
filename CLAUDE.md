@@ -121,8 +121,10 @@ without a `FundingSource` union (a budget line always targets exactly one sub-en
 with no automatic "unfunded"-style skip (every `BudgetLine` is inherently ready to apply, unlike a
 `CardPurchase`) and no built-in period/payday filtering (the caller pre-scopes the list). This
 completes the Budget thread's core logic: `PaydaySchedule` → `BudgetPeriod` → `PaydayWindow` →
-`BudgetLine`/`applyBudgetLine`/`applyBudgetLines`. Server routers and the Budget tab UI are the
-remaining work before this thread reaches the app.
+`BudgetLine`/`applyBudgetLine`/`applyBudgetLines`. A read-only `budget` router
+(`apps/server/src/routers/budget.ts` — `paydaySchedules`/`budgetLines`) exposes the seeded
+`PaydaySchedule` and 2 `BudgetLine`s. An `applyBudgetLines`-backed mutation and the Budget tab UI
+are the remaining work before this thread reaches the app.
 
 Increment 23 continues the Budget thread: `BudgetPeriod`
 (`packages/shared/src/domain/budget-period.ts`) is the calendar-month budgeting window — unlike a
