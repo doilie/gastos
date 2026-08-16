@@ -7,9 +7,8 @@
     },
     "apps/mobile": {
       "entry": ["app/**/*.{ts,tsx}"],
-      "project": ["app/**/*.{ts,tsx}"],
-      "babel": true,
-      "ignoreDependencies": ["@gastos/shared"]
+      "project": ["app/**/*.{ts,tsx}", "lib/**/*.{ts,tsx}", "components/**/*.{ts,tsx}"],
+      "babel": true
     },
     "packages/shared": {
       "project": ["src/**/*.ts"]

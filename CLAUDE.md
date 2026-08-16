@@ -78,6 +78,13 @@ placeholder screen. Screens are stubs sharing one `PlaceholderScreen` component,
 static web export. Jest + React Native Testing Library (`jest-expo` preset) were set up for
 `apps/mobile` for the first time, with smoke tests for every screen.
 
+Increment 18 (mobile data wiring, part 1) is complete: `apps/mobile/lib/trpc.ts` sets up a tRPC
+React Query client typed against `@gastos/server`'s `AppRouter` (type-only import, never bundles
+server runtime code), wired into `apps/mobile/app/_layout.tsx` via `trpc.Provider`/
+`QueryClientProvider` (hardcoded to `http://localhost:3000/trpc` — dev-only, no env-config system
+exists yet). The Today tab now calls `ledger.spendableBalance.useQuery()` and renders real data;
+the other 5 tabs are still `PlaceholderScreen` stubs. Quick-add UI is a later increment.
+
 Increment 13 (server layer, part 1) is complete: `apps/server` now has an in-memory seed store
 (`apps/server/src/store.ts` — no database, resets on restart) built from `@gastos/shared`'s
 factories, and a read-only `reference` tRPC router (`apps/server/src/routers/reference.ts`)
