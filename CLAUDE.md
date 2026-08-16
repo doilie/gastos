@@ -195,6 +195,16 @@ packages/config     Shared ESLint (flat config), Prettier, and Knip config.
 - `packages/config/knip.json`'s `apps/mobile` entry has `"ignoreDependencies": ["@gastos/shared"]`
   — it's genuinely unused by today's stub screens (per Increment 10) but deliberately pre-declared
   for the data-wiring increments to come. Remove the ignore once a screen actually imports it.
+- **Non-route files must live outside `apps/mobile/app/`.** Expo Router's route root is `app/`
+  (confirmed via the dev bundle's `transform.routerRoot=app` query param) — any `.tsx` file under
+  it becomes a route, including plain shared components, *even inside a leading-underscore
+  directory* (e.g. `app/(tabs)/_components/`) — that convention does NOT exclude a directory from
+  routing here, only `_layout.tsx`/similar special filenames are special-cased, plus whatever
+  `metro.config.js`'s `resolver.blockList` explicitly excludes (currently just `*.test.tsx`/
+  `*.spec.tsx`). This bit us once: `PlaceholderScreen.tsx` inside `_components/` was picked up as
+  its own route with no default export, producing a spurious extra tab that errored on navigation.
+  Shared/non-screen components belong in `apps/mobile/components/` (sibling to `app/`), never
+  inside the route tree.
 
 ## Conventions
 
