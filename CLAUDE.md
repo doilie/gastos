@@ -106,6 +106,14 @@ total spend, and purchase list — computed client-side via the existing pure `c
 into past cycles and settlement/payment-allocation UI are later increments. Budget/Reports/More
 are still `PlaceholderScreen` stubs.
 
+Increment 22 begins the Budget/Payday domain thread (nothing existed for it before): `PaydaySchedule`
+(`packages/shared/src/reference/payday-schedule.ts`) models the configured day(s)-of-month
+payday(s) happen, reusing the same clamp-to-last-day-of-month technique as `CreditCard.cutoffDay`
+so "last day of month" falls out of a day-31 entry naturally. `paydaysInMonth` computes actual
+payday dates for a given month. The HLD's own open item (non-banking-day shift rule) is
+deliberately unresolved — raw calendar days only. `BudgetPeriod`, `PaydayWindow`, and
+`BudgetLine`/allocation logic are still to come.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
