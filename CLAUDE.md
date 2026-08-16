@@ -83,7 +83,15 @@ React Query client typed against `@gastos/server`'s `AppRouter` (type-only impor
 server runtime code), wired into `apps/mobile/app/_layout.tsx` via `trpc.Provider`/
 `QueryClientProvider` (hardcoded to `http://localhost:3000/trpc` — dev-only, no env-config system
 exists yet). The Today tab now calls `ledger.spendableBalance.useQuery()` and renders real data;
-the other 5 tabs are still `PlaceholderScreen` stubs. Quick-add UI is a later increment.
+the other 5 tabs are still `PlaceholderScreen` stubs.
+
+Increment 19 (mobile data wiring, part 2) is complete: `apps/mobile/components/QuickAddForm.tsx`
+adds the app's P0 quick-add flow to the Today screen, scoped to the "defaults to Spendable" path
+(no account/envelope/card picker yet). Entered amounts are always treated as an expense and
+negated before calling `ledger.addTransaction`; `findSpendableAccountId` resolves which of
+Spendable's linked accounts to post against (the first one — picking among several is deferred).
+On success, invalidates `ledger.spendableBalance` via `trpc.useUtils()` so the balance updates
+immediately.
 
 Increment 13 (server layer, part 1) is complete: `apps/server` now has an in-memory seed store
 (`apps/server/src/store.ts` — no database, resets on restart) built from `@gastos/shared`'s
@@ -212,6 +220,10 @@ packages/config     Shared ESLint (flat config), Prettier, and Knip config.
   its own route with no default export, producing a spurious extra tab that errored on navigation.
   Shared/non-screen components belong in `apps/mobile/components/` (sibling to `app/`), never
   inside the route tree.
+- **`@testing-library/react-native@14`'s `fireEvent.press`/`fireEvent.changeText` are async and
+  must be `await`ed.** Without `await`, the `act()`-wrapped state update doesn't flush before the
+  next assertion — the press/change silently appears to do nothing (no thrown error, just a stale
+  query result). Every interactive RNTL test in this repo must `await fireEvent...(...)`.
 
 ## Conventions
 
