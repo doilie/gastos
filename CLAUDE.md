@@ -78,6 +78,13 @@ placeholder screen. Screens are stubs sharing one `PlaceholderScreen` component,
 static web export. Jest + React Native Testing Library (`jest-expo` preset) were set up for
 `apps/mobile` for the first time, with smoke tests for every screen.
 
+Increment 13 (server layer, part 1) is complete: `apps/server` now has an in-memory seed store
+(`apps/server/src/store.ts` — no database, resets on restart) built from `@gastos/shared`'s
+factories, and a read-only `reference` tRPC router (`apps/server/src/routers/reference.ts`)
+exposing `Account`/`Category`/`EnvelopeGroup`/`SubEnvelope` as no-input queries. Transactions are
+seeded but not yet exposed by any router; balance queries and all mutation procedures are deferred
+to later increments.
+
 "gastos" is Spanish for "expenses." It is a personal, single-user finance app intended to replace
 a 5-year-old, 24-sheet Excel workbook (see `req/accounts-xls-hld.md` and
 `req/what-i-want.txt` for the full spec and rationale).
