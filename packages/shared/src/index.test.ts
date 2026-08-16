@@ -15,6 +15,7 @@ import * as cardCycleSettlement from "./domain/card-cycle-settlement";
 import * as cardPurchase from "./domain/card-purchase";
 import * as cardSettlement from "./domain/card-settlement";
 import * as fundingSource from "./domain/funding-source";
+import * as paydayWindow from "./domain/payday-window";
 import * as transfer from "./domain/transfer";
 
 describe("@gastos/shared entry point", () => {
@@ -145,5 +146,13 @@ describe("@gastos/shared entry point (credit-card domain)", () => {
     expect(typeof budgetPeriod.budgetPeriodContaining).toBe("function");
     expect(typeof budgetPeriod.budgetPeriodRange).toBe("function");
     expect(typeof budgetPeriod.isDateWithinBudgetPeriod).toBe("function");
+  });
+
+  it("re-exports the domain/payday-window module through the package barrel", () => {
+    // Full behavioral coverage lives in src/domain/payday-window.test.ts; this
+    // just proves the barrel export wiring stays intact.
+    expect(paydayWindow).toBeDefined();
+    expect(typeof paydayWindow.paydayWindowContaining).toBe("function");
+    expect(typeof paydayWindow.isDateWithinPaydayWindow).toBe("function");
   });
 });

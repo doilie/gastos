@@ -19,6 +19,7 @@ export * from "./domain/card-purchase";
 export * from "./domain/card-settlement";
 export * from "./domain/card-cycle-settlement";
 export * from "./domain/budget-period";
+export * from "./domain/payday-window";
 
 /** Package identity marker, used to prove the workspace/import wiring works. */
 export const SHARED_PACKAGE_NAME = "@gastos/shared";
