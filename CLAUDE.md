@@ -99,6 +99,13 @@ correspond to a real seeded entity (the underlying `deriveAccountBalance`/
 functions but wrong for an API — this distinguishes "zero balance" from "doesn't exist"). All
 mutation procedures are still deferred.
 
+Increment 16 (server layer, part 4) is complete: the store now seeds a `CreditCard` and 3
+`CardPurchase`s (one per `FundingSource` kind — account/envelope/none), exposed read-only via a
+new `cards` router (`creditCards`/`cardPurchases`). Cycle computation
+(`cardCycleContaining`/`sumCardPurchasesInCycle`) is left to the client, called directly against
+this raw data. All read endpoints a UI needs now exist; mutation procedures (quick-add, settle,
+CRUD) are next.
+
 "gastos" is Spanish for "expenses." It is a personal, single-user finance app intended to replace
 a 5-year-old, 24-sheet Excel workbook (see `req/accounts-xls-hld.md` and
 `req/what-i-want.txt` for the full spec and rationale).
