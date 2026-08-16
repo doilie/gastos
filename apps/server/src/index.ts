@@ -1,5 +1,6 @@
 import { fileURLToPath } from "node:url";
 
+import cors from "@fastify/cors";
 import { fastifyTRPCPlugin } from "@trpc/server/adapters/fastify";
 import Fastify from "fastify";
 
@@ -9,6 +10,11 @@ const PORT = 3000;
 
 export function buildServer() {
   const fastify = Fastify({ logger: true });
+
+  // Dev-only, intentionally permissive: this app has no deployment or auth
+  // system yet, so there's no meaningful origin to restrict to. Tighten this
+  // once the app has a real deployment target.
+  fastify.register(cors, { origin: true });
 
   fastify.register(fastifyTRPCPlugin, {
     prefix: "/trpc",
