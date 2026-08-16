@@ -6,16 +6,19 @@ import {
   isEnvelopeFundingSource,
   isSpendableEnvelope,
   isUnfundedSource,
+  paydaysInMonth,
   SPENDABLE_ENVELOPE_ID,
   subEnvelopeIdFromString,
 } from "@gastos/shared";
 
 import {
   getAccounts,
+  getBudgetLines,
   getCardPurchases,
   getCategories,
   getCreditCards,
   getEnvelopeGroups,
+  getPaydaySchedules,
   getSubEnvelopes,
   getTransactions,
 } from "./store";
@@ -184,5 +187,45 @@ describe("store: sign-convention sanity check (derived balances)", () => {
     // Only txn-groceries-fund-allocation touches this envelope: +300000
     const balance = deriveSubEnvelopeBalance(getTransactions(), groceriesFundId);
     expect(balance).toBe(centsFromInt(300000));
+  });
+});
+
+describe("store: payday schedules", () => {
+  it("returns exactly 1 payday schedule", () => {
+    expect(getPaydaySchedules()).toHaveLength(1);
+  });
+});
+
+describe("store: budget lines", () => {
+  it("returns exactly 2 budget lines", () => {
+    expect(getBudgetLines()).toHaveLength(2);
+  });
+});
+
+describe("store: budget referential integrity", () => {
+  it("every BudgetLine.subEnvelopeId corresponds to a real seeded sub-envelope", () => {
+    const subEnvelopeIds = new Set(getSubEnvelopes().map((subEnvelope) => subEnvelope.id));
+    for (const line of getBudgetLines()) {
+      expect(subEnvelopeIds).toContain(line.subEnvelopeId);
+    }
+  });
+});
+
+describe("store: budget seed-data sanity check", () => {
+  it("every seeded BudgetLine.paydayDate actually is a payday under the seeded default PaydaySchedule", () => {
+    const [defaultSchedule] = getPaydaySchedules();
+    expect(defaultSchedule).toBeDefined();
+    if (defaultSchedule === undefined) {
+      return;
+    }
+
+    for (const line of getBudgetLines()) {
+      const paydaysThatMonth = paydaysInMonth(
+        defaultSchedule,
+        line.budgetPeriod.year,
+        line.budgetPeriod.month,
+      );
+      expect(paydaysThatMonth).toContain(line.paydayDate);
+    }
   });
 });

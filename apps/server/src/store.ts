@@ -5,16 +5,20 @@
 import {
   type Account,
   accountIdFromString,
+  type BudgetLine,
+  budgetLineIdFromString,
   type CardPurchase,
   cardPurchaseIdFromString,
   type Category,
   categoryIdFromString,
   centsFromInt,
   createAccount,
+  createBudgetLine,
   createCardPurchase,
   createCategory,
   createCreditCard,
   createEnvelopeGroup,
+  createPaydaySchedule,
   createSpendableEnvelope,
   createSubEnvelope,
   createTransaction,
@@ -26,6 +30,8 @@ import {
   fundingSourceFromAccount,
   fundingSourceFromEnvelope,
   ledgerDateFromString,
+  type PaydaySchedule,
+  paydayScheduleIdFromString,
   type SubEnvelope,
   subEnvelopeIdFromString,
   type Transaction,
@@ -170,6 +176,36 @@ const cardPurchases: readonly CardPurchase[] = [
   }),
 ];
 
+const defaultPaydaySchedule: PaydaySchedule = createPaydaySchedule({
+  id: paydayScheduleIdFromString("payday-schedule-default"),
+  name: "Semi-monthly",
+  paydayDaysOfMonth: [15, 31],
+});
+
+const paydaySchedules: readonly PaydaySchedule[] = [defaultPaydaySchedule];
+
+const augustPaydayDate = ledgerDateFromString("2026-08-15");
+const augustBudgetPeriod = { year: 2026, month: 8 };
+
+const budgetLines: readonly BudgetLine[] = [
+  createBudgetLine({
+    id: budgetLineIdFromString("budget-line-groceries-fund-august-15"),
+    budgetPeriod: augustBudgetPeriod,
+    paydayDate: augustPaydayDate,
+    subEnvelopeId: groceriesFundEnvelope.id,
+    amount: centsFromInt(500000),
+    description: "Payday allocation — Groceries Fund",
+  }),
+  createBudgetLine({
+    id: budgetLineIdFromString("budget-line-spendable-august-15"),
+    budgetPeriod: augustBudgetPeriod,
+    paydayDate: augustPaydayDate,
+    subEnvelopeId: spendableEnvelope.id,
+    amount: centsFromInt(2000000),
+    description: "Payday allocation — Spendable",
+  }),
+];
+
 /** Returns the seeded accounts. */
 export function getAccounts(): readonly Account[] {
   return accounts;
@@ -208,4 +244,14 @@ export function getCreditCards(): readonly CreditCard[] {
 /** Returns the seeded card purchases. */
 export function getCardPurchases(): readonly CardPurchase[] {
   return cardPurchases;
+}
+
+/** Returns the seeded payday schedules. */
+export function getPaydaySchedules(): readonly PaydaySchedule[] {
+  return paydaySchedules;
+}
+
+/** Returns the seeded budget lines. */
+export function getBudgetLines(): readonly BudgetLine[] {
+  return budgetLines;
 }
