@@ -111,15 +111,24 @@ Increment 22 begins the Budget/Payday domain thread (nothing existed for it befo
 payday(s) happen, reusing the same clamp-to-last-day-of-month technique as `CreditCard.cutoffDay`
 so "last day of month" falls out of a day-31 entry naturally. `paydaysInMonth` computes actual
 payday dates for a given month. The HLD's own open item (non-banking-day shift rule) is
-deliberately unresolved — raw calendar days only. `PaydayWindow` and
-`BudgetLine`/allocation logic are still to come.
+deliberately unresolved — raw calendar days only. `BudgetLine`/allocation logic is still to come.
 
 Increment 23 continues the Budget thread: `BudgetPeriod`
 (`packages/shared/src/domain/budget-period.ts`) is the calendar-month budgeting window — unlike a
 card cycle or the upcoming `PaydayWindow`, it never straddles a month boundary (it IS the calendar
 month), so no cutoff-day clamping or cross-month shifting is needed. `budgetPeriodContaining`/
 `budgetPeriodRange`/`isDateWithinBudgetPeriod` mirror `CardCycle`'s pure-derived-value shape (no
-id). `PaydayWindow` and `BudgetLine`/allocation logic are still to come.
+id).
+
+Increment 24 completes the period-math piece of the Budget thread: `PaydayWindow`
+(`packages/shared/src/domain/payday-window.ts`) is the "how much can I spend per day" period —
+one payday through the day before the next. Unlike `CardCycle`/`BudgetPeriod`, a `PaydaySchedule`
+can configure multiple paydays per month, so `paydayWindowContaining` gathers candidate paydays
+from the previous, current, and next month before bracketing the target date; a strict `>`
+comparison correctly handles the case where two different configured days clamp to the same
+actual date in a short month, with no explicit dedup step needed. `BudgetLine`/allocation logic
+(tying a payday's income to envelope allocations and the ledger) is the remaining piece of this
+thread.
 
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
