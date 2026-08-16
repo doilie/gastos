@@ -54,6 +54,14 @@ unassigned). `sumCardPurchasesInCycle` totals purchases for a billing cycle, bui
 `isDateWithinCardCycle` helper in `card-cycle.ts`. Wiring a funded purchase into an actual ledger
 `Transaction` and the multi-source "Settle cycle" payment-allocation flow are still deferred.
 
+Increment 11 (Credit Card, part 3) is complete: `settleCardPurchase`
+(`packages/shared/src/domain/card-settlement.ts`) turns a funded `CardPurchase` into a real ledger
+`Transaction`. Since a `SubEnvelope` can span multiple accounts, neither `FundingSource` variant
+alone fully determines both `accountId` and `subEnvelopeId` — the caller always supplies both
+explicitly, and the function validates them against the purchase's declared `FundingSource` rather
+than deriving either field. The multi-source "Settle cycle" payment-allocation flow (splitting a
+whole statement total across purchases/sources) is still deferred.
+
 Increment 10 (UI shell) is complete: `apps/mobile` now has a real 6-tab Expo Router shell (Today,
 Envelopes, Cards, Budget, Reports, More — `apps/mobile/app/(tabs)/`), replacing the Increment-1
 placeholder screen. Screens are stubs sharing one `PlaceholderScreen` component, no live data yet
