@@ -91,6 +91,14 @@ derived balance (`deriveSubEnvelopeBalance`) as no-input queries — the number 
 needs. Parameterized balance queries (per-account, per-sub-envelope) need Zod input validation, a
 first for this codebase, and are deferred along with all mutation procedures.
 
+Increment 15 (server layer, part 3) is complete: `ledger.accountBalance`/`ledger.subEnvelopeBalance`
+are the first tRPC procedures in this codebase to take input, using Zod for shape validation plus
+a shared `assertIdExists` helper that throws a `NOT_FOUND` `TRPCError` when an id doesn't
+correspond to a real seeded entity (the underlying `deriveAccountBalance`/
+`deriveSubEnvelopeBalance` correctly return zero for no matches, which is right for those pure
+functions but wrong for an API — this distinguishes "zero balance" from "doesn't exist"). All
+mutation procedures are still deferred.
+
 "gastos" is Spanish for "expenses." It is a personal, single-user finance app intended to replace
 a 5-year-old, 24-sheet Excel workbook (see `req/accounts-xls-hld.md` and
 `req/what-i-want.txt` for the full spec and rationale).
