@@ -111,8 +111,15 @@ Increment 22 begins the Budget/Payday domain thread (nothing existed for it befo
 payday(s) happen, reusing the same clamp-to-last-day-of-month technique as `CreditCard.cutoffDay`
 so "last day of month" falls out of a day-31 entry naturally. `paydaysInMonth` computes actual
 payday dates for a given month. The HLD's own open item (non-banking-day shift rule) is
-deliberately unresolved — raw calendar days only. `BudgetPeriod`, `PaydayWindow`, and
+deliberately unresolved — raw calendar days only. `PaydayWindow` and
 `BudgetLine`/allocation logic are still to come.
+
+Increment 23 continues the Budget thread: `BudgetPeriod`
+(`packages/shared/src/domain/budget-period.ts`) is the calendar-month budgeting window — unlike a
+card cycle or the upcoming `PaydayWindow`, it never straddles a month boundary (it IS the calendar
+month), so no cutoff-day clamping or cross-month shifting is needed. `budgetPeriodContaining`/
+`budgetPeriodRange`/`isDateWithinBudgetPeriod` mirror `CardCycle`'s pure-derived-value shape (no
+id). `PaydayWindow` and `BudgetLine`/allocation logic are still to come.
 
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
