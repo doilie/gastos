@@ -231,3 +231,131 @@ describe("budget.applyBudgetLine — validation errors", () => {
     await app.close();
   });
 });
+
+interface AppliedBudgetLinesResult {
+  appliedTransactions: AppliedTransaction[];
+  skippedLines: unknown[];
+}
+
+// NOTE: same shared-store discipline as budget.applyBudgetLine above —
+// budget.applyBudgetLines also mutates the shared in-memory `transactions`
+// array, so these tests never assume a pristine baseline either.
+
+describe("budget.applyBudgetLines — success", () => {
+  it("applies only the requested line (partial batch), reporting the other seeded line as skipped", async () => {
+    const app = buildServer();
+    const data = await mutateBudget<AppliedBudgetLinesResult>(app, "applyBudgetLines", {
+      applications: [{ budgetLineId: "budget-line-groceries-fund-august-15", accountId: "account-savings" }],
+    });
+
+    expect(data.appliedTransactions).toHaveLength(1);
+    const applied = data.appliedTransactions[0];
+    expect(applied).toBeDefined();
+    expect(applied?.amount).toBe(500000);
+    expect(applied?.accountId).toBe("account-savings");
+    expect(applied?.subEnvelopeId).toBe("sub-envelope-groceries-fund");
+    expect(applied?.categoryId).toBeNull();
+    expect(applied?.counterTransactionId).toBeNull();
+
+    expect(data.skippedLines).toHaveLength(1);
+    const [skipped] = getBudgetLines().filter(
+      (line) => line.id === "budget-line-spendable-august-15",
+    );
+    expect(data.skippedLines[0]).toEqual(skipped);
+    await app.close();
+  });
+
+  it("applies both seeded lines when both are requested (full batch), skippedLines is empty", async () => {
+    const app = buildServer();
+    const data = await mutateBudget<AppliedBudgetLinesResult>(app, "applyBudgetLines", {
+      applications: [
+        { budgetLineId: "budget-line-groceries-fund-august-15", accountId: "account-savings" },
+        { budgetLineId: "budget-line-spendable-august-15", accountId: "account-checking" },
+      ],
+    });
+
+    expect(data.appliedTransactions).toHaveLength(2);
+    expect(data.skippedLines).toHaveLength(0);
+
+    const groceries = data.appliedTransactions.find(
+      (transaction) => transaction.subEnvelopeId === "sub-envelope-groceries-fund",
+    );
+    const spendable = data.appliedTransactions.find(
+      (transaction) => transaction.subEnvelopeId === "spendable",
+    );
+    expect(groceries?.amount).toBe(500000);
+    expect(groceries?.accountId).toBe("account-savings");
+    expect(spendable?.amount).toBe(2000000);
+    expect(spendable?.accountId).toBe("account-checking");
+    await app.close();
+  });
+
+  it("with an empty applications list, applies nothing and skips every seeded line", async () => {
+    const app = buildServer();
+    const data = await mutateBudget<AppliedBudgetLinesResult>(app, "applyBudgetLines", {
+      applications: [],
+    });
+
+    expect(data.appliedTransactions).toHaveLength(0);
+    expect(data.skippedLines).toHaveLength(getBudgetLines().length);
+    const skippedIds = data.skippedLines.map((line) => (line as { id: string }).id);
+    for (const line of getBudgetLines()) {
+      expect(skippedIds).toContain(line.id);
+    }
+    await app.close();
+  });
+});
+
+describe("budget.applyBudgetLines — persistence", () => {
+  it("persists the applied transaction, visible in a fresh ledger.transactions request", async () => {
+    const app = buildServer();
+    const data = await mutateBudget<AppliedBudgetLinesResult>(app, "applyBudgetLines", {
+      applications: [{ budgetLineId: "budget-line-groceries-fund-august-15", accountId: "account-savings" }],
+    });
+    const created = data.appliedTransactions[0];
+    expect(created).toBeDefined();
+
+    const allTransactions = await queryLedger<AppliedTransaction[]>(app, "transactions");
+    const found = allTransactions.find((transaction) => transaction.id === created?.id);
+    expect(found).toEqual(created);
+    await app.close();
+  });
+});
+
+describe("budget.applyBudgetLines — validation errors", () => {
+  it("returns NOT_FOUND (404) when the applications list contains a nonexistent budgetLineId", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateBudgetExpectingError(app, "applyBudgetLines", {
+      applications: [{ budgetLineId: "budget-line-does-not-exist", accountId: "account-savings" }],
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("returns NOT_FOUND (404) when the applications list contains a nonexistent accountId", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateBudgetExpectingError(app, "applyBudgetLines", {
+      applications: [
+        { budgetLineId: "budget-line-groceries-fund-august-15", accountId: "account-does-not-exist" },
+      ],
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("propagates the domain-layer error with a non-2xx response when accountId is real but not linked to the target sub-envelope", async () => {
+    const app = buildServer();
+    // Same mismatch as the single-item mutation's equivalent test:
+    // account-checking is only linked to the Spendable envelope, not
+    // sub-envelope-groceries-fund.
+    const { statusCode } = await mutateBudgetExpectingError(app, "applyBudgetLines", {
+      applications: [
+        { budgetLineId: "budget-line-groceries-fund-august-15", accountId: "account-checking" },
+      ],
+    });
+    expect(statusCode).toBeGreaterThanOrEqual(400);
+    await app.close();
+  });
+});

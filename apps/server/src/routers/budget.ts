@@ -1,7 +1,11 @@
 import {
+  type AccountId,
   accountIdFromString,
   applyBudgetLine as applyBudgetLineToLedger,
+  applyBudgetLines as applyBudgetLinesToLedger,
+  type ApplyBudgetLineInput,
   type BudgetLine,
+  type BudgetLineId,
   budgetLineIdFromString,
   type SubEnvelope,
   transactionIdFromString,
@@ -37,6 +41,23 @@ function assertIdExists(
 }
 
 /**
+ * Looks up the `SubEnvelope` a `BudgetLine` targets, throwing `NOT_FOUND` if
+ * it's missing. Shared by the single-item and batch mutations.
+ */
+function findFundingSubEnvelope(line: BudgetLine): SubEnvelope {
+  const fundingSubEnvelope = getSubEnvelopes().find(
+    (candidate) => candidate.id === line.subEnvelopeId,
+  );
+  if (fundingSubEnvelope === undefined) {
+    throw new TRPCError({
+      code: "NOT_FOUND",
+      message: `Sub-envelope "${line.subEnvelopeId}" not found`,
+    });
+  }
+  return fundingSubEnvelope;
+}
+
+/**
  * Looks up the `BudgetLine` for `budgetLineId` and the `SubEnvelope` it
  * targets, throwing `NOT_FOUND` for either miss. Factored out of the
  * `applyBudgetLine` mutation to keep it under the complexity/length caps.
@@ -51,26 +72,67 @@ function resolveBudgetLineAndSubEnvelope(budgetLineId: string): {
     throw new TRPCError({ code: "NOT_FOUND", message: `BudgetLine "${id}" not found` });
   }
 
-  const fundingSubEnvelope = getSubEnvelopes().find(
-    (candidate) => candidate.id === line.subEnvelopeId,
-  );
-  if (fundingSubEnvelope === undefined) {
-    throw new TRPCError({
-      code: "NOT_FOUND",
-      message: `Sub-envelope "${line.subEnvelopeId}" not found`,
-    });
-  }
-
-  return { line, fundingSubEnvelope };
+  return { line, fundingSubEnvelope: findFundingSubEnvelope(line) };
 }
 
 /**
- * Read-only Budget queries (PaydaySchedule/BudgetLine) plus the
- * `applyBudgetLine` mutation, which applies a single seeded `BudgetLine`
- * into the ledger (mirroring `ledger.addTransaction`'s validation style).
- * A batch "apply this whole payday" mutation is deferred to a later
- * increment, same as `cards.ts`'s own note about deferring cycle-settlement
- * endpoints.
+ * Validates every `{ budgetLineId, accountId }` pair in `applications`
+ * against the seeded stores (`NOT_FOUND` for either miss), and builds a
+ * `budgetLineId -> accountId` lookup for `buildApplyResolver` to consult.
+ * Factored out of `applyBudgetLines` to keep it under the complexity/length
+ * caps.
+ */
+function parseAndValidateApplications(
+  applications: readonly { budgetLineId: string; accountId: string }[],
+): Map<BudgetLineId, AccountId> {
+  const applicationsByLineId = new Map<BudgetLineId, AccountId>();
+
+  for (const application of applications) {
+    const budgetLineId = budgetLineIdFromString(application.budgetLineId);
+    assertIdExists(getBudgetLines(), budgetLineId, `BudgetLine "${budgetLineId}" not found`);
+
+    const accountId = accountIdFromString(application.accountId);
+    assertIdExists(getAccounts(), accountId, `Account "${accountId}" not found`);
+
+    applicationsByLineId.set(budgetLineId, accountId);
+  }
+
+  return applicationsByLineId;
+}
+
+/**
+ * Builds the resolver `applyBudgetLines` (the domain function) calls once
+ * per seeded `BudgetLine`: lines absent from `applications` are skipped
+ * (resolver returns `null`); lines present resolve to a concrete
+ * `ApplyBudgetLineInput` using the caller-supplied account and the line's
+ * target sub-envelope.
+ */
+function buildApplyResolver(
+  applications: Map<BudgetLineId, AccountId>,
+): (line: BudgetLine) => ApplyBudgetLineInput | null {
+  return (line) => {
+    const accountId = applications.get(line.id);
+    if (accountId === undefined) {
+      return null;
+    }
+
+    return {
+      id: transactionIdFromString(randomUUID()),
+      accountId,
+      fundingSubEnvelope: findFundingSubEnvelope(line),
+    };
+  };
+}
+
+/**
+ * Read-only Budget queries (PaydaySchedule/BudgetLine) plus two mutations:
+ * `applyBudgetLine` applies a single seeded `BudgetLine` into the ledger
+ * (mirroring `ledger.addTransaction`'s validation style), and
+ * `applyBudgetLines` applies a caller-chosen subset of every seeded
+ * `BudgetLine` in one call — mirroring the shared `applyBudgetLines`/
+ * `settleCardCycle` "resolve per-item, report what succeeded vs. skipped"
+ * pattern. Lines omitted from the batch call's `applications` list are
+ * reported back as `skippedLines`, not treated as an error.
  */
 export const budgetRouter = router({
   paydaySchedules: publicProcedure.query(() => getPaydaySchedules()),
@@ -90,5 +152,20 @@ export const budgetRouter = router({
       });
       addTransaction(transaction);
       return transaction;
+    }),
+  applyBudgetLines: publicProcedure
+    .input(
+      z.object({
+        applications: z.array(z.object({ budgetLineId: z.string(), accountId: z.string() })),
+      }),
+    )
+    .mutation(({ input }) => {
+      const applications = parseAndValidateApplications(input.applications);
+      const resolver = buildApplyResolver(applications);
+
+      const result = applyBudgetLinesToLedger(getBudgetLines(), resolver);
+      result.appliedTransactions.forEach(addTransaction);
+
+      return { appliedTransactions: result.appliedTransactions, skippedLines: result.skippedLines };
     }),
 });
