@@ -126,9 +126,11 @@ completes the Budget thread's core logic: `PaydaySchedule` → `BudgetPeriod` �
 `PaydaySchedule` and 2 `BudgetLine`s. `budget.applyBudgetLine`
 applies a single seeded `BudgetLine` into the ledger (mirroring `ledger.addTransaction`'s
 validation style); it does not mark the line as "applied," so re-applying the same id currently
-creates a second transaction (accepted limitation, not part of the current data model). A batch
-"apply this whole payday" mutation and the Budget tab UI are the remaining work before this thread
-reaches the app.
+creates a second transaction (accepted limitation, not part of the current data model). `budget.applyBudgetLines` is the batch version — mirrors `applyBudgetLines`/`settleCardCycle`'s
+resolve-per-item pattern; since tRPC input is JSON, the caller-supplied `{budgetLineId,
+accountId}` list becomes the resolver itself (every seeded `BudgetLine` is attempted; any id
+absent from the list lands in `skippedLines`, not an error). The Budget tab UI is the remaining
+work before this thread reaches the app.
 
 Increment 23 continues the Budget thread: `BudgetPeriod`
 (`packages/shared/src/domain/budget-period.ts`) is the calendar-month budgeting window — unlike a
