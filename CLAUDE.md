@@ -123,8 +123,12 @@ with no automatic "unfunded"-style skip (every `BudgetLine` is inherently ready 
 completes the Budget thread's core logic: `PaydaySchedule` → `BudgetPeriod` → `PaydayWindow` →
 `BudgetLine`/`applyBudgetLine`/`applyBudgetLines`. A read-only `budget` router
 (`apps/server/src/routers/budget.ts` — `paydaySchedules`/`budgetLines`) exposes the seeded
-`PaydaySchedule` and 2 `BudgetLine`s. An `applyBudgetLines`-backed mutation and the Budget tab UI
-are the remaining work before this thread reaches the app.
+`PaydaySchedule` and 2 `BudgetLine`s. `budget.applyBudgetLine`
+applies a single seeded `BudgetLine` into the ledger (mirroring `ledger.addTransaction`'s
+validation style); it does not mark the line as "applied," so re-applying the same id currently
+creates a second transaction (accepted limitation, not part of the current data model). A batch
+"apply this whole payday" mutation and the Budget tab UI are the remaining work before this thread
+reaches the app.
 
 Increment 23 continues the Budget thread: `BudgetPeriod`
 (`packages/shared/src/domain/budget-period.ts`) is the calendar-month budgeting window — unlike a
