@@ -1,14 +1,17 @@
 import { formatCents } from "@gastos/shared";
 import { StyleSheet, Text, View } from "react-native";
 
+import { findSpendableAccountId, QuickAddForm } from "../../components/QuickAddForm";
 import { trpc } from "../../lib/trpc";
 
 /**
  * Today tab: shows the Spendable envelope's derived balance, read straight
- * from `ledger.spendableBalance`. Quick-add is a later increment.
+ * from `ledger.spendableBalance`, plus a quick-add form that always logs an
+ * expense against Spendable (account/envelope/card picker is later work).
  */
 export default function TodayScreen() {
   const spendableBalance = trpc.ledger.spendableBalance.useQuery();
+  const subEnvelopes = trpc.reference.subEnvelopes.useQuery();
 
   if (spendableBalance.isPending) {
     return (
@@ -26,6 +29,10 @@ export default function TodayScreen() {
     );
   }
 
+  const spendableAccountId = subEnvelopes.data
+    ? findSpendableAccountId(subEnvelopes.data)
+    : undefined;
+
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Today</Text>
@@ -33,6 +40,7 @@ export default function TodayScreen() {
           "base currency" concept yet) is deferred future work — show the
           plain formatted number for now. */}
       <Text style={styles.balance}>{formatCents(spendableBalance.data)}</Text>
+      <QuickAddForm spendableAccountId={spendableAccountId} />
     </View>
   );
 }

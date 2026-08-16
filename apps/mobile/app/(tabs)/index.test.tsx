@@ -6,7 +6,16 @@ jest.mock("../../lib/trpc", () => ({
       spendableBalance: {
         useQuery: jest.fn(),
       },
+      addTransaction: {
+        useMutation: jest.fn(),
+      },
     },
+    reference: {
+      subEnvelopes: {
+        useQuery: jest.fn(),
+      },
+    },
+    useUtils: jest.fn(),
   },
 }));
 
@@ -24,12 +33,74 @@ interface MockQueryResult {
   data: number | undefined;
 }
 
+// Minimal shape of a `SubEnvelope` as read by `findSpendableAccountId` —
+// a plain object literal is fine here since this suite tests `TodayScreen`'s
+// wiring, not `@gastos/shared`'s validation.
+interface MockSubEnvelope {
+  id: string;
+  name: string;
+  groupId: string | null;
+  accountIds: string[];
+}
+
+interface MockSubEnvelopesQueryResult {
+  isPending: boolean;
+  isError: boolean;
+  data: MockSubEnvelope[] | undefined;
+}
+
+interface MockMutationResult {
+  mutate: jest.Mock;
+  isPending: boolean;
+  isError: boolean;
+  reset: jest.Mock;
+}
+
 const mockUseQuery = trpc.ledger.spendableBalance
   .useQuery as unknown as jest.Mock<MockQueryResult>;
+const mockSubEnvelopesUseQuery = trpc.reference.subEnvelopes
+  .useQuery as unknown as jest.Mock<MockSubEnvelopesQueryResult>;
+const mockAddTransactionUseMutation = trpc.ledger.addTransaction
+  .useMutation as unknown as jest.Mock<MockMutationResult>;
+const mockUseUtils = trpc.useUtils as unknown as jest.Mock<{
+  ledger: { spendableBalance: { invalidate: jest.Mock } };
+}>;
 
 describe("TodayScreen", () => {
+  beforeEach(() => {
+    // Default wiring for `QuickAddForm`'s own hooks — these existing tests
+    // exercise `TodayScreen`'s three balance states, not the quick-add form
+    // itself (that's covered in QuickAddForm.test.tsx), so these are
+    // harmless no-ops plus one Spendable-shaped sub-envelope so the "+ Add"
+    // button ends up enabled.
+    mockSubEnvelopesUseQuery.mockReturnValue({
+      isPending: false,
+      isError: false,
+      data: [
+        {
+          id: "spendable",
+          name: "Spendable",
+          groupId: null,
+          accountIds: ["acc-1"],
+        },
+      ],
+    });
+    mockAddTransactionUseMutation.mockReturnValue({
+      mutate: jest.fn(),
+      isPending: false,
+      isError: false,
+      reset: jest.fn(),
+    });
+    mockUseUtils.mockReturnValue({
+      ledger: { spendableBalance: { invalidate: jest.fn() } },
+    });
+  });
+
   afterEach(() => {
     mockUseQuery.mockReset();
+    mockSubEnvelopesUseQuery.mockReset();
+    mockAddTransactionUseMutation.mockReset();
+    mockUseUtils.mockReset();
   });
 
   it("renders a loading state while the query is pending", async () => {
