@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { SHARED_PACKAGE_NAME } from "./index";
 import * as money from "./money/index";
+import * as budgetPeriod from "./domain/budget-period";
 import * as account from "./reference/account";
 import * as category from "./reference/category";
 import * as creditCard from "./reference/credit-card";
@@ -135,5 +136,14 @@ describe("@gastos/shared entry point (credit-card domain)", () => {
     // this just proves the barrel export wiring stays intact.
     expect(cardCycleSettlement).toBeDefined();
     expect(typeof cardCycleSettlement.settleCardCycle).toBe("function");
+  });
+
+  it("re-exports the domain/budget-period module through the package barrel", () => {
+    // Full behavioral coverage lives in src/domain/budget-period.test.ts; this
+    // just proves the barrel export wiring stays intact.
+    expect(budgetPeriod).toBeDefined();
+    expect(typeof budgetPeriod.budgetPeriodContaining).toBe("function");
+    expect(typeof budgetPeriod.budgetPeriodRange).toBe("function");
+    expect(typeof budgetPeriod.isDateWithinBudgetPeriod).toBe("function");
   });
 });
