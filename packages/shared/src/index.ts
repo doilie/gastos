@@ -10,6 +10,7 @@ export * from "./reference/account";
 export * from "./reference/category";
 export * from "./reference/envelope";
 export * from "./reference/credit-card";
+export * from "./reference/payday-schedule";
 export * from "./ledger-core/transaction";
 export * from "./domain/funding-source";
 export * from "./domain/transfer";

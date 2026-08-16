@@ -7,6 +7,7 @@ import * as category from "./reference/category";
 import * as creditCard from "./reference/credit-card";
 import * as currency from "./reference/currency";
 import * as envelope from "./reference/envelope";
+import * as paydaySchedule from "./reference/payday-schedule";
 import * as transaction from "./ledger-core/transaction";
 import * as cardCycle from "./domain/card-cycle";
 import * as cardCycleSettlement from "./domain/card-cycle-settlement";
@@ -94,6 +95,15 @@ describe("@gastos/shared entry point", () => {
     expect(creditCard).toBeDefined();
     expect(typeof creditCard.creditCardIdFromString).toBe("function");
     expect(typeof creditCard.createCreditCard).toBe("function");
+  });
+
+  it("re-exports the reference/payday-schedule module through the package barrel", () => {
+    // Full behavioral coverage lives in src/reference/payday-schedule.test.ts;
+    // this just proves the barrel export wiring stays intact.
+    expect(paydaySchedule).toBeDefined();
+    expect(typeof paydaySchedule.paydayScheduleIdFromString).toBe("function");
+    expect(typeof paydaySchedule.createPaydaySchedule).toBe("function");
+    expect(typeof paydaySchedule.paydaysInMonth).toBe("function");
   });
 });
 
