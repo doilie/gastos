@@ -111,7 +111,14 @@ Increment 22 begins the Budget/Payday domain thread (nothing existed for it befo
 payday(s) happen, reusing the same clamp-to-last-day-of-month technique as `CreditCard.cutoffDay`
 so "last day of month" falls out of a day-31 entry naturally. `paydaysInMonth` computes actual
 payday dates for a given month. The HLD's own open item (non-banking-day shift rule) is
-deliberately unresolved — raw calendar days only. `BudgetLine`/allocation logic is still to come.
+deliberately unresolved — raw calendar days only. `BudgetLine`/allocation logic (`packages/shared/src/domain/budget-line.ts`) is now built:
+`BudgetLine` is the allocation record ("this much of this payday's salary goes to this
+sub-envelope"), and `applyBudgetLine` turns a confirmed line into a real ledger `Transaction`,
+mirroring `CardPurchase`/`settleCardPurchase`'s caller-supplies-the-account-explicitly pattern but
+without a `FundingSource` union (a budget line always targets exactly one sub-envelope). Unlike
+`settleCardPurchase`, it does not negate the amount — allocating is a credit. A batch
+"confirm a whole payday's allocations at once" function (the `settleCardCycle` equivalent) is the
+remaining piece before this thread reaches the UI.
 
 Increment 23 continues the Budget thread: `BudgetPeriod`
 (`packages/shared/src/domain/budget-period.ts`) is the calendar-month budgeting window — unlike a
