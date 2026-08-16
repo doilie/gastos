@@ -93,6 +93,9 @@ importers:
       fastify:
         specifier: ^5.12.0
         version: 5.12.0
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
     devDependencies:
       '@gastos/config':
         specifier: workspace:*
