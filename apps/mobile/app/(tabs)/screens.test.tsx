@@ -3,7 +3,6 @@ import type { ReactElement } from "react";
 
 import BudgetScreen from "./budget";
 import CardsScreen from "./cards";
-import EnvelopesScreen from "./envelopes";
 import MoreScreen from "./more";
 import ReportsScreen from "./reports";
 
@@ -12,6 +11,12 @@ import ReportsScreen from "./reports";
 // network-dependent states (loading/error/success) instead of a static
 // PlaceholderScreen title+subtitle, so it can't share this generic table.
 // Its dedicated coverage lives in ./index.test.tsx.
+//
+// Envelopes (./envelopes) is likewise intentionally NOT covered here: it now
+// calls trpc.reference.envelopeGroups.useQuery()/subEnvelopes.useQuery()/
+// useQueries() and renders network-dependent states instead of a static
+// PlaceholderScreen title+subtitle. Its dedicated coverage lives in
+// ./envelopes.test.tsx.
 
 type ScreenCase = [
   name: string,
@@ -21,12 +26,6 @@ type ScreenCase = [
 ];
 
 const cases: ScreenCase[] = [
-  [
-    "Envelopes",
-    EnvelopesScreen,
-    "Envelopes",
-    "Envelope groups and sub-envelope balances — coming soon",
-  ],
   [
     "Cards",
     CardsScreen,
