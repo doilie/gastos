@@ -1,17 +1,31 @@
 import {
   type AccountId,
   accountIdFromString,
+  type CategoryId,
+  categoryIdFromString,
+  createTransaction,
   deriveAccountBalance,
   deriveSubEnvelopeBalance,
+  parseCents,
   SPENDABLE_ENVELOPE_ID,
   type SubEnvelopeId,
   subEnvelopeIdFromString,
+  type Transaction,
+  transactionIdFromString,
+  ledgerDateFromString,
 } from "@gastos/shared";
 import { TRPCError } from "@trpc/server";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { publicProcedure, router } from "../trpc";
-import { getAccounts, getSubEnvelopes, getTransactions } from "../store";
+import {
+  addTransaction,
+  getAccounts,
+  getCategories,
+  getSubEnvelopes,
+  getTransactions,
+} from "../store";
 
 /**
  * Throws a `NOT_FOUND` TRPCError unless some item in `items` has the given
@@ -29,11 +43,52 @@ function assertIdExists(
   }
 }
 
+const addTransactionInputSchema = z.object({
+  date: z.string(),
+  description: z.string(),
+  categoryId: z.string().nullable(),
+  accountId: z.string(),
+  subEnvelopeId: z.string(),
+  amount: z.string(), // a signed decimal string, e.g. "150.00" or "-150.00"
+});
+
+type AddTransactionInput = z.infer<typeof addTransactionInputSchema>;
+
+/**
+ * Parses and validates the id-shaped fields of an `addTransaction` input
+ * against the store, throwing `NOT_FOUND` (via `assertIdExists`) for any
+ * reference that doesn't resolve to a seeded entity.
+ */
+function resolveTransactionInput(input: AddTransactionInput): {
+  accountId: AccountId;
+  subEnvelopeId: SubEnvelopeId;
+  categoryId: CategoryId | null;
+} {
+  const accountId: AccountId = accountIdFromString(input.accountId);
+  assertIdExists(getAccounts(), accountId, `Account "${accountId}" not found`);
+
+  const subEnvelopeId: SubEnvelopeId = subEnvelopeIdFromString(input.subEnvelopeId);
+  assertIdExists(
+    getSubEnvelopes(),
+    subEnvelopeId,
+    `Sub-envelope "${subEnvelopeId}" not found`,
+  );
+
+  const categoryId: CategoryId | null =
+    input.categoryId === null ? null : categoryIdFromString(input.categoryId);
+  if (categoryId !== null) {
+    assertIdExists(getCategories(), categoryId, `Category "${categoryId}" not found`);
+  }
+
+  return { accountId, subEnvelopeId, categoryId };
+}
+
 /**
  * Read-only Ledger Core queries (Transaction list, Spendable envelope
- * balance, and parameterized account/sub-envelope balances). Thin wrappers
- * over the in-memory store — no business logic here, that all lives in
- * `@gastos/shared`. No mutation procedures yet.
+ * balance, and parameterized account/sub-envelope balances), plus the
+ * `addTransaction` mutation — the app's single "quick add" write path,
+ * covering both the Spendable and envelope cases (structurally identical:
+ * both are just a `Transaction` against some `accountId`+`subEnvelopeId`).
  */
 export const ledgerRouter = router({
   transactions: publicProcedure.query(() => getTransactions()),
@@ -57,5 +112,21 @@ export const ledgerRouter = router({
         `Sub-envelope "${subEnvelopeId}" not found`,
       );
       return deriveSubEnvelopeBalance(getTransactions(), subEnvelopeId);
+    }),
+  addTransaction: publicProcedure
+    .input(addTransactionInputSchema)
+    .mutation(({ input }) => {
+      const { accountId, subEnvelopeId, categoryId } = resolveTransactionInput(input);
+      const transaction: Transaction = createTransaction({
+        id: transactionIdFromString(randomUUID()),
+        date: ledgerDateFromString(input.date),
+        description: input.description,
+        categoryId,
+        accountId,
+        subEnvelopeId,
+        amount: parseCents(input.amount),
+      });
+      addTransaction(transaction);
+      return transaction;
     }),
 });

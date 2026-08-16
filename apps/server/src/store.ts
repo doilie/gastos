@@ -84,7 +84,7 @@ const spendableEnvelope: SubEnvelope = createSpendableEnvelope([checkingAccount.
 
 const subEnvelopes: readonly SubEnvelope[] = [spendableEnvelope, groceriesFundEnvelope];
 
-const transactions: readonly Transaction[] = [
+const transactions: Transaction[] = [
   createTransaction({
     id: transactionIdFromString("txn-salary"),
     date: ledgerDateFromString("2026-08-01"),
@@ -193,6 +193,11 @@ export function getSubEnvelopes(): readonly SubEnvelope[] {
 /** Returns the seeded transactions. */
 export function getTransactions(): readonly Transaction[] {
   return transactions;
+}
+
+/** Appends `transaction` to the in-memory store. */
+export function addTransaction(transaction: Transaction): void {
+  transactions.push(transaction);
 }
 
 /** Returns the seeded credit cards. */
