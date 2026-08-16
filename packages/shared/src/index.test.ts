@@ -10,6 +10,7 @@ import * as envelope from "./reference/envelope";
 import * as transaction from "./ledger-core/transaction";
 import * as cardCycle from "./domain/card-cycle";
 import * as cardPurchase from "./domain/card-purchase";
+import * as cardSettlement from "./domain/card-settlement";
 import * as fundingSource from "./domain/funding-source";
 import * as transfer from "./domain/transfer";
 
@@ -109,5 +110,12 @@ describe("@gastos/shared entry point (credit-card domain)", () => {
     expect(cardPurchase).toBeDefined();
     expect(typeof cardPurchase.createCardPurchase).toBe("function");
     expect(typeof cardPurchase.sumCardPurchasesInCycle).toBe("function");
+  });
+
+  it("re-exports the domain/card-settlement module through the package barrel", () => {
+    // Full behavioral coverage lives in src/domain/card-settlement.test.ts;
+    // this just proves the barrel export wiring stays intact.
+    expect(cardSettlement).toBeDefined();
+    expect(typeof cardSettlement.settleCardPurchase).toBe("function");
   });
 });
