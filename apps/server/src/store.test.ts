@@ -2,14 +2,19 @@ import { describe, expect, it } from "vitest";
 import {
   centsFromInt,
   deriveSubEnvelopeBalance,
+  isAccountFundingSource,
+  isEnvelopeFundingSource,
   isSpendableEnvelope,
+  isUnfundedSource,
   SPENDABLE_ENVELOPE_ID,
   subEnvelopeIdFromString,
 } from "@gastos/shared";
 
 import {
   getAccounts,
+  getCardPurchases,
   getCategories,
+  getCreditCards,
   getEnvelopeGroups,
   getSubEnvelopes,
   getTransactions,
@@ -94,6 +99,69 @@ describe("store: referential integrity", () => {
     for (const transaction of getTransactions()) {
       if (transaction.categoryId !== null) {
         expect(categoryIds).toContain(transaction.categoryId);
+      }
+    }
+  });
+});
+
+describe("store: credit cards", () => {
+  it("returns exactly 1 credit card", () => {
+    expect(getCreditCards()).toHaveLength(1);
+  });
+});
+
+describe("store: card purchases", () => {
+  it("returns exactly 3 card purchases", () => {
+    expect(getCardPurchases()).toHaveLength(3);
+  });
+
+  it("includes exactly one of each FundingSource kind (account/envelope/none)", () => {
+    const purchases = getCardPurchases();
+    const accountFunded = purchases.filter((purchase) =>
+      isAccountFundingSource(purchase.fundingSource),
+    );
+    const envelopeFunded = purchases.filter((purchase) =>
+      isEnvelopeFundingSource(purchase.fundingSource),
+    );
+    const unfunded = purchases.filter((purchase) => isUnfundedSource(purchase.fundingSource));
+
+    expect(accountFunded).toHaveLength(1);
+    expect(envelopeFunded).toHaveLength(1);
+    expect(unfunded).toHaveLength(1);
+  });
+});
+
+describe("store: credit-card referential integrity", () => {
+  it("every CardPurchase.creditCardId corresponds to a real seeded credit card", () => {
+    const creditCardIds = new Set(getCreditCards().map((creditCard) => creditCard.id));
+    for (const purchase of getCardPurchases()) {
+      expect(creditCardIds).toContain(purchase.creditCardId);
+    }
+  });
+
+  it("every non-null CardPurchase.categoryId corresponds to a real seeded category", () => {
+    const categoryIds = new Set(getCategories().map((category) => category.id));
+    for (const purchase of getCardPurchases()) {
+      if (purchase.categoryId !== null) {
+        expect(categoryIds).toContain(purchase.categoryId);
+      }
+    }
+  });
+
+  it("every account-funded CardPurchase.fundingSource.accountId corresponds to a real seeded account", () => {
+    const accountIds = new Set(getAccounts().map((account) => account.id));
+    for (const purchase of getCardPurchases()) {
+      if (isAccountFundingSource(purchase.fundingSource)) {
+        expect(accountIds).toContain(purchase.fundingSource.accountId);
+      }
+    }
+  });
+
+  it("every envelope-funded CardPurchase.fundingSource.subEnvelopeId corresponds to a real seeded sub-envelope", () => {
+    const subEnvelopeIds = new Set(getSubEnvelopes().map((subEnvelope) => subEnvelope.id));
+    for (const purchase of getCardPurchases()) {
+      if (isEnvelopeFundingSource(purchase.fundingSource)) {
+        expect(subEnvelopeIds).toContain(purchase.fundingSource.subEnvelopeId);
       }
     }
   });

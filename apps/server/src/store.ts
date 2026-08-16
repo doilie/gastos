@@ -5,18 +5,26 @@
 import {
   type Account,
   accountIdFromString,
+  type CardPurchase,
+  cardPurchaseIdFromString,
   type Category,
   categoryIdFromString,
   centsFromInt,
   createAccount,
+  createCardPurchase,
   createCategory,
+  createCreditCard,
   createEnvelopeGroup,
   createSpendableEnvelope,
   createSubEnvelope,
   createTransaction,
+  type CreditCard,
+  creditCardIdFromString,
   currencyCodeFromString,
   type EnvelopeGroup,
   envelopeGroupIdFromString,
+  fundingSourceFromAccount,
+  fundingSourceFromEnvelope,
   ledgerDateFromString,
   type SubEnvelope,
   subEnvelopeIdFromString,
@@ -124,6 +132,44 @@ const transactions: readonly Transaction[] = [
   }),
 ];
 
+const visaCard: CreditCard = createCreditCard({
+  id: creditCardIdFromString("credit-card-visa"),
+  name: "Visa",
+  currency: PHP,
+  cutoffDay: 17,
+});
+
+const creditCards: readonly CreditCard[] = [visaCard];
+
+const cardPurchases: readonly CardPurchase[] = [
+  createCardPurchase({
+    id: cardPurchaseIdFromString("card-purchase-transport-1"),
+    creditCardId: visaCard.id,
+    date: ledgerDateFromString("2026-07-20"),
+    description: "Grab ride",
+    categoryId: transportCategory.id,
+    amount: centsFromInt(45000),
+    fundingSource: fundingSourceFromAccount(checkingAccount.id),
+  }),
+  createCardPurchase({
+    id: cardPurchaseIdFromString("card-purchase-groceries-1"),
+    creditCardId: visaCard.id,
+    date: ledgerDateFromString("2026-08-02"),
+    description: "Supermarket run",
+    categoryId: groceriesCategory.id,
+    amount: centsFromInt(210000),
+    fundingSource: fundingSourceFromEnvelope(groceriesFundEnvelope.id),
+  }),
+  createCardPurchase({
+    id: cardPurchaseIdFromString("card-purchase-groceries-2"),
+    creditCardId: visaCard.id,
+    date: ledgerDateFromString("2026-08-12"),
+    description: "Convenience store snacks",
+    categoryId: groceriesCategory.id,
+    amount: centsFromInt(15000),
+  }),
+];
+
 /** Returns the seeded accounts. */
 export function getAccounts(): readonly Account[] {
   return accounts;
@@ -147,4 +193,14 @@ export function getSubEnvelopes(): readonly SubEnvelope[] {
 /** Returns the seeded transactions. */
 export function getTransactions(): readonly Transaction[] {
   return transactions;
+}
+
+/** Returns the seeded credit cards. */
+export function getCreditCards(): readonly CreditCard[] {
+  return creditCards;
+}
+
+/** Returns the seeded card purchases. */
+export function getCardPurchases(): readonly CardPurchase[] {
+  return cardPurchases;
 }
