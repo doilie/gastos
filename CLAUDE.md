@@ -103,8 +103,16 @@ Increment 16 (server layer, part 4) is complete: the store now seeds a `CreditCa
 `CardPurchase`s (one per `FundingSource` kind — account/envelope/none), exposed read-only via a
 new `cards` router (`creditCards`/`cardPurchases`). Cycle computation
 (`cardCycleContaining`/`sumCardPurchasesInCycle`) is left to the client, called directly against
-this raw data. All read endpoints a UI needs now exist; mutation procedures (quick-add, settle,
-CRUD) are next.
+this raw data. All read endpoints a UI needs now exist.
+
+Increment 17 (server layer, part 5) is complete: `ledger.addTransaction` is the first mutation
+procedure in this codebase — the app's quick-add write path, covering both the Spendable and
+envelope cases. `amount` is a signed decimal string parsed via `parseCents` (matching what a human
+types), the transaction id is generated server-side, and every referenced id is validated to exist
+via the existing `NOT_FOUND` pattern. The store's `transactions` array is now internally mutable
+(`addTransaction` in `store.ts`) while `getTransactions()` still returns a readonly view. A
+separate credit-card-purchase-creating mutation, and CRUD for reference entities, are still
+deferred.
 
 "gastos" is Spanish for "expenses." It is a personal, single-user finance app intended to replace
 a 5-year-old, 24-sheet Excel workbook (see `req/accounts-xls-hld.md` and
