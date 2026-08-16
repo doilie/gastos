@@ -129,8 +129,8 @@ validation style); it does not mark the line as "applied," so re-applying the sa
 creates a second transaction (accepted limitation, not part of the current data model). `budget.applyBudgetLines` is the batch version — mirrors `applyBudgetLines`/`settleCardCycle`'s
 resolve-per-item pattern; since tRPC input is JSON, the caller-supplied `{budgetLineId,
 accountId}` list becomes the resolver itself (every seeded `BudgetLine` is attempted; any id
-absent from the list lands in `skippedLines`, not an error). The Budget tab UI is the remaining
-work before this thread reaches the app.
+absent from the list lands in `skippedLines`, not an error). The Budget tab UI landed in
+Increment 25.
 
 Increment 23 continues the Budget thread: `BudgetPeriod`
 (`packages/shared/src/domain/budget-period.ts`) is the calendar-month budgeting window — unlike a
@@ -148,6 +148,16 @@ comparison correctly handles the case where two different configured days clamp 
 actual date in a short month, with no explicit dedup step needed. `BudgetLine`/allocation logic
 (tying a payday's income to envelope allocations and the ledger) is the remaining piece of this
 thread.
+
+Increment 25 wires the Budget tab (`apps/mobile/app/(tabs)/budget.tsx`) to live data, replacing its
+`PlaceholderScreen` stub — read-only display of every seeded `PaydaySchedule` (name plus configured
+payday days) and `BudgetLine` (target sub-envelope resolved to a friendly name via
+`trpc.reference.subEnvelopes`, falling back to the raw id if unmatched, plus description/date/
+amount), mirroring how Envelopes/Cards were wired before it. No apply/confirm mutation UI yet —
+wiring `budget.applyBudgetLine`/`applyBudgetLines` into the screen is a deliberate follow-up
+increment, the same pattern Today's quick-add form followed after its own initial read-only
+wiring. This is the last of the 6 tabs to move off `PlaceholderScreen` except Reports/More, which
+have no underlying domain data yet.
 
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
