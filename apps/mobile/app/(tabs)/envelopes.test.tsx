@@ -24,6 +24,15 @@ jest.mock("../../lib/trpc", () => ({
       updateSubEnvelope: {
         useMutation: jest.fn(),
       },
+      archiveSubEnvelope: {
+        useMutation: jest.fn(),
+      },
+      unarchiveSubEnvelope: {
+        useMutation: jest.fn(),
+      },
+      deleteEnvelopeGroup: {
+        useMutation: jest.fn(),
+      },
     },
     useQueries: jest.fn(),
     useUtils: jest.fn(),
@@ -64,6 +73,7 @@ interface MockSubEnvelope {
   name: string;
   groupId: string | null;
   accountIds: string[];
+  isArchived: boolean;
 }
 
 const mockEnvelopeGroupsUseQuery = trpc.reference.envelopeGroups
@@ -94,6 +104,38 @@ const mockUpdateEnvelopeGroupUseMutation = trpc.reference.updateEnvelopeGroup
   .useMutation as unknown as jest.Mock<MockMutationResult>;
 const mockUpdateSubEnvelopeUseMutation = trpc.reference.updateSubEnvelope
   .useMutation as unknown as jest.Mock<MockMutationResult>;
+const mockArchiveSubEnvelopeUseMutation = trpc.reference.archiveSubEnvelope
+  .useMutation as unknown as jest.Mock<MockMutationResult>;
+const mockUnarchiveSubEnvelopeUseMutation = trpc.reference.unarchiveSubEnvelope
+  .useMutation as unknown as jest.Mock<MockMutationResult>;
+
+// `deleteEnvelopeGroup` is read for `.error?.message` (not just `isError`),
+// so it gets its own mock-result shape rather than reusing
+// `MockMutationResult` — mirrors more.test.tsx's `deleteCategory` pattern
+// exactly.
+interface MockDeleteMutationResult {
+  mutate: jest.Mock;
+  isPending: boolean;
+  isError: boolean;
+  error: { message: string } | undefined;
+  reset: jest.Mock;
+}
+
+const mockDeleteEnvelopeGroupUseMutation = trpc.reference.deleteEnvelopeGroup
+  .useMutation as unknown as jest.Mock<MockDeleteMutationResult>;
+
+function mockDeleteMutationResult(
+  overrides: Partial<MockDeleteMutationResult> = {},
+): MockDeleteMutationResult {
+  return {
+    mutate: jest.fn(),
+    isPending: false,
+    isError: false,
+    error: undefined,
+    reset: jest.fn(),
+    ...overrides,
+  };
+}
 
 const mockUseUtils = trpc.useUtils as unknown as jest.Mock<{
   reference: {
@@ -139,6 +181,9 @@ beforeEach(() => {
   mockCreateSubEnvelopeUseMutation.mockReturnValue(mockMutationResult());
   mockUpdateEnvelopeGroupUseMutation.mockReturnValue(mockMutationResult());
   mockUpdateSubEnvelopeUseMutation.mockReturnValue(mockMutationResult());
+  mockArchiveSubEnvelopeUseMutation.mockReturnValue(mockMutationResult());
+  mockUnarchiveSubEnvelopeUseMutation.mockReturnValue(mockMutationResult());
+  mockDeleteEnvelopeGroupUseMutation.mockReturnValue(mockDeleteMutationResult());
   mockUseUtils.mockReturnValue({
     reference: {
       envelopeGroups: { invalidate: jest.fn() },
@@ -155,6 +200,9 @@ afterEach(() => {
   mockCreateSubEnvelopeUseMutation.mockReset();
   mockUpdateEnvelopeGroupUseMutation.mockReset();
   mockUpdateSubEnvelopeUseMutation.mockReset();
+  mockArchiveSubEnvelopeUseMutation.mockReset();
+  mockUnarchiveSubEnvelopeUseMutation.mockReset();
+  mockDeleteEnvelopeGroupUseMutation.mockReset();
   mockUseUtils.mockReset();
   mockUseQueries.mockReset();
 });
@@ -209,12 +257,14 @@ const groceriesFund: MockSubEnvelope = {
   name: "Groceries Fund",
   groupId: "grp-1",
   accountIds: ["acc-1"],
+  isArchived: false,
 };
 const spendable: MockSubEnvelope = {
   id: "spendable",
   name: "Spendable",
   groupId: null,
   accountIds: ["acc-1"],
+  isArchived: false,
 };
 
 /** Wires the two list queries with one group + one grouped + one Spendable sub-envelope. */
@@ -621,6 +671,7 @@ const editableSubEnvelope: MockSubEnvelope = {
   name: "Rent Fund",
   groupId: everydayGroup.id,
   accountIds: [walletAccount.id],
+  isArchived: false,
 };
 const editableSubEnvelopeBalance = centsFromInt(12000);
 
@@ -741,5 +792,269 @@ describe("SubEnvelopeRow edit mutation error state", () => {
     await fireEvent.press(requireDefined(getAllByText("Edit")[1]));
 
     expect(getByText("Couldn't save — try again.")).toBeTruthy();
+  });
+});
+
+// --- SubEnvelopeRow Archive/Unarchive ------------------------------------
+
+const activeSubEnvelope: MockSubEnvelope = {
+  id: "sub-30",
+  name: "Fun Fund",
+  groupId: everydayGroup.id,
+  accountIds: [walletAccount.id],
+  isArchived: false,
+};
+
+const archivedSubEnvelope: MockSubEnvelope = {
+  ...activeSubEnvelope,
+  id: "sub-31",
+  isArchived: true,
+};
+
+/**
+ * Wires the list queries to one group (`everydayGroup`) with exactly one
+ * given sub-envelope plus one account — scoped like
+ * `mockOneGroupWithOneEditableSubEnvelope` so the row's own "Edit"/Archive
+ * controls stay unambiguous (index 1 in `getAllByText("Edit")`, after the
+ * group heading's own "Edit").
+ */
+function mockOneGroupWithOneArchivableSubEnvelope(subEnvelope: MockSubEnvelope): void {
+  mockEnvelopeGroupsUseQuery.mockReturnValue(success([everydayGroup]));
+  mockSubEnvelopesUseQuery.mockReturnValue(success([subEnvelope]));
+  mockAccountsUseQuery.mockReturnValue(success([walletAccount]));
+  mockUseQueries.mockReturnValue([success(centsFromInt(5000))]);
+}
+
+describe("SubEnvelopeRow Archive/Unarchive label and list inclusion", () => {
+  it("shows Archive for a non-archived sub-envelope", async () => {
+    mockOneGroupWithOneArchivableSubEnvelope(activeSubEnvelope);
+
+    const { getByText, queryByText } = await render(<EnvelopesScreen />);
+
+    expect(getByText("Archive")).toBeTruthy();
+    expect(queryByText("Unarchive")).toBeNull();
+  });
+
+  it("shows Unarchive for an archived sub-envelope, without filtering it out of the list", async () => {
+    mockOneGroupWithOneArchivableSubEnvelope(archivedSubEnvelope);
+
+    const { getByText, queryByText } = await render(<EnvelopesScreen />);
+
+    expect(getByText("Unarchive")).toBeTruthy();
+    expect(queryByText("Archive")).toBeNull();
+  });
+});
+
+describe("SubEnvelopeRow Archive/Unarchive submission", () => {
+  it("tapping Archive on a non-archived sub-envelope calls archiveSubEnvelope.mutate, not unarchiveSubEnvelope", async () => {
+    const archiveMutate = jest.fn();
+    const unarchiveMutate = jest.fn();
+    mockArchiveSubEnvelopeUseMutation.mockReturnValue(
+      mockMutationResult({ mutate: archiveMutate }),
+    );
+    mockUnarchiveSubEnvelopeUseMutation.mockReturnValue(
+      mockMutationResult({ mutate: unarchiveMutate }),
+    );
+    mockOneGroupWithOneArchivableSubEnvelope(activeSubEnvelope);
+
+    const { getByText } = await render(<EnvelopesScreen />);
+    await fireEvent.press(getByText("Archive"));
+
+    expect(archiveMutate).toHaveBeenCalledTimes(1);
+    expect(archiveMutate).toHaveBeenCalledWith({ id: activeSubEnvelope.id });
+    expect(unarchiveMutate).not.toHaveBeenCalled();
+  });
+
+  it("tapping Unarchive on an archived sub-envelope calls unarchiveSubEnvelope.mutate, not archiveSubEnvelope", async () => {
+    const archiveMutate = jest.fn();
+    const unarchiveMutate = jest.fn();
+    mockArchiveSubEnvelopeUseMutation.mockReturnValue(
+      mockMutationResult({ mutate: archiveMutate }),
+    );
+    mockUnarchiveSubEnvelopeUseMutation.mockReturnValue(
+      mockMutationResult({ mutate: unarchiveMutate }),
+    );
+    mockOneGroupWithOneArchivableSubEnvelope(archivedSubEnvelope);
+
+    const { getByText } = await render(<EnvelopesScreen />);
+    await fireEvent.press(getByText("Unarchive"));
+
+    expect(unarchiveMutate).toHaveBeenCalledTimes(1);
+    expect(unarchiveMutate).toHaveBeenCalledWith({ id: archivedSubEnvelope.id });
+    expect(archiveMutate).not.toHaveBeenCalled();
+  });
+});
+
+describe("SubEnvelopeRow archived name suffix", () => {
+  it("appends (archived) to the name for an archived sub-envelope", async () => {
+    mockOneGroupWithOneArchivableSubEnvelope(archivedSubEnvelope);
+
+    const { getByText, queryByText } = await render(<EnvelopesScreen />);
+
+    expect(getByText("Fun Fund (archived)")).toBeTruthy();
+    expect(queryByText("Fun Fund")).toBeNull();
+  });
+
+  it("does not append (archived) for a non-archived sub-envelope", async () => {
+    mockOneGroupWithOneArchivableSubEnvelope(activeSubEnvelope);
+
+    const { getByText, queryByText } = await render(<EnvelopesScreen />);
+
+    expect(getByText("Fun Fund")).toBeTruthy();
+    expect(queryByText("Fun Fund (archived)")).toBeNull();
+  });
+});
+
+describe("SubEnvelopeRow Archive/Unarchive error state", () => {
+  it("shows the generic update error message when the archive mutation errors", async () => {
+    mockArchiveSubEnvelopeUseMutation.mockReturnValue(
+      mockMutationResult({ isError: true }),
+    );
+    mockOneGroupWithOneArchivableSubEnvelope(activeSubEnvelope);
+
+    const { getByText } = await render(<EnvelopesScreen />);
+
+    expect(getByText("Couldn't update — try again.")).toBeTruthy();
+  });
+});
+
+describe("SubEnvelopeRow Edit disabled while archive/unarchive is pending", () => {
+  it("disables the row's Edit control while the archive mutation is pending", async () => {
+    mockArchiveSubEnvelopeUseMutation.mockReturnValue(
+      mockMutationResult({ isPending: true }),
+    );
+    mockOneGroupWithOneArchivableSubEnvelope(activeSubEnvelope);
+
+    const { getAllByText } = await render(<EnvelopesScreen />);
+
+    expect(requireDefined(getAllByText("Edit")[1])).toBeDisabled();
+  });
+});
+
+// --- EnvelopeGroupSection Delete confirmation ---------------------------
+
+describe("EnvelopeGroupSection Delete confirmation flow", () => {
+  it("collapsed state shows no confirmation", async () => {
+    mockOneEmptyGroupWithAccounts([]);
+
+    const { getByText, queryByText } = await render(<EnvelopesScreen />);
+
+    expect(getByText("Delete")).toBeTruthy();
+    expect(queryByText("Delete this group?")).toBeNull();
+  });
+
+  it("tapping Delete reveals Delete this group? plus Cancel/Confirm, without calling mutate", async () => {
+    const mutate = jest.fn();
+    mockDeleteEnvelopeGroupUseMutation.mockReturnValue(
+      mockDeleteMutationResult({ mutate }),
+    );
+    mockOneEmptyGroupWithAccounts([]);
+
+    const { getByText } = await render(<EnvelopesScreen />);
+    await fireEvent.press(getByText("Delete"));
+
+    expect(getByText("Delete this group?")).toBeTruthy();
+    expect(getByText("Cancel")).toBeTruthy();
+    expect(getByText("Confirm")).toBeTruthy();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it("tapping Cancel hides the confirmation again without calling mutate", async () => {
+    const mutate = jest.fn();
+    mockDeleteEnvelopeGroupUseMutation.mockReturnValue(
+      mockDeleteMutationResult({ mutate }),
+    );
+    mockOneEmptyGroupWithAccounts([]);
+
+    const { getByText, queryByText } = await render(<EnvelopesScreen />);
+    await fireEvent.press(getByText("Delete"));
+    await fireEvent.press(getByText("Cancel"));
+
+    expect(queryByText("Delete this group?")).toBeNull();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it("tapping Confirm calls deleteEnvelopeGroup.mutate with the group's id", async () => {
+    const mutate = jest.fn();
+    mockDeleteEnvelopeGroupUseMutation.mockReturnValue(
+      mockDeleteMutationResult({ mutate }),
+    );
+    mockOneEmptyGroupWithAccounts([]);
+
+    const { getByText } = await render(<EnvelopesScreen />);
+    await fireEvent.press(getByText("Delete"));
+    await fireEvent.press(getByText("Confirm"));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate).toHaveBeenCalledWith({ id: travelGroup.id });
+  });
+
+  it("shows Deleting… and disables Cancel/Confirm while the delete mutation is pending", async () => {
+    // Mirrors more.test.tsx's analogous CategoryRow test: the Delete button
+    // itself is disabled once the mutation is pending, so the confirmation
+    // panel must be opened first (mutation not yet pending), then the mock
+    // is swapped to a pending result and the tree re-rendered — same
+    // instance, so `isConfirming` state survives.
+    mockOneEmptyGroupWithAccounts([]);
+    mockDeleteEnvelopeGroupUseMutation.mockReturnValue(mockDeleteMutationResult());
+    const { getByText, queryByText, rerender } = await render(<EnvelopesScreen />);
+
+    await fireEvent.press(getByText("Delete"));
+    expect(getByText("Confirm")).toBeTruthy();
+
+    mockDeleteEnvelopeGroupUseMutation.mockReturnValue(
+      mockDeleteMutationResult({ isPending: true }),
+    );
+    await rerender(<EnvelopesScreen />);
+
+    expect(getByText("Deleting…")).toBeTruthy();
+    expect(queryByText("Confirm")).toBeNull();
+    expect(getByText("Deleting…")).toBeDisabled();
+    expect(getByText("Cancel")).toBeDisabled();
+  });
+});
+
+describe("EnvelopeGroupSection Delete disables Edit while confirming", () => {
+  it("disables the heading's Edit control while the delete confirmation is open", async () => {
+    mockOneEmptyGroupWithAccounts([]);
+
+    const { getByText } = await render(<EnvelopesScreen />);
+    await fireEvent.press(getByText("Delete"));
+
+    expect(getByText("Edit")).toBeDisabled();
+  });
+});
+
+describe("EnvelopeGroupSection Delete confirmation error message", () => {
+  it("renders the mutation's specific error message when one is provided", async () => {
+    mockDeleteEnvelopeGroupUseMutation.mockReturnValue(
+      mockDeleteMutationResult({
+        isError: true,
+        error: { message: 'EnvelopeGroup "grp-3" is still in use and cannot be deleted' },
+      }),
+    );
+    mockOneEmptyGroupWithAccounts([]);
+
+    const { getByText, queryByText } = await render(<EnvelopesScreen />);
+    await fireEvent.press(getByText("Delete"));
+
+    expect(
+      getByText('EnvelopeGroup "grp-3" is still in use and cannot be deleted'),
+    ).toBeTruthy();
+    expect(queryByText("Couldn't delete — try again.")).toBeNull();
+    // The confirmation panel stays open on error.
+    expect(getByText("Delete this group?")).toBeTruthy();
+  });
+
+  it("falls back to the generic message when the mutation error has no message", async () => {
+    mockDeleteEnvelopeGroupUseMutation.mockReturnValue(
+      mockDeleteMutationResult({ isError: true, error: { message: "" } }),
+    );
+    mockOneEmptyGroupWithAccounts([]);
+
+    const { getByText } = await render(<EnvelopesScreen />);
+    await fireEvent.press(getByText("Delete"));
+
+    expect(getByText("Couldn't delete — try again.")).toBeTruthy();
   });
 });

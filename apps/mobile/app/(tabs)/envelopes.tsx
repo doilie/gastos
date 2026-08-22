@@ -111,6 +111,47 @@ function useEnvelopeGroupEdit(group: EnvelopeGroup) {
   return { isEditing, name, setName, updateEnvelopeGroup, startEdit, cancelEdit, handleSave };
 }
 
+/**
+ * `EnvelopeGroupSection`'s heading delete-confirmation state and
+ * `deleteEnvelopeGroup` mutation — split into its own hook so the section
+ * component itself stays under the line/complexity caps. Mirrors
+ * `more.tsx`'s `useCategoryDelete` exactly.
+ */
+function useEnvelopeGroupDelete(group: EnvelopeGroup) {
+  const [isConfirming, setIsConfirming] = useState(false);
+  const utils = trpc.useUtils();
+  const deleteEnvelopeGroup = trpc.reference.deleteEnvelopeGroup.useMutation({
+    onSuccess: () => void utils.reference.envelopeGroups.invalidate(),
+  });
+
+  function startDelete() {
+    deleteEnvelopeGroup.reset();
+    setIsConfirming(true);
+  }
+
+  function cancelDelete() {
+    deleteEnvelopeGroup.reset();
+    setIsConfirming(false);
+  }
+
+  function confirmDelete() {
+    deleteEnvelopeGroup.mutate({ id: group.id });
+  }
+
+  const errorMessage = deleteEnvelopeGroup.isError
+    ? deleteEnvelopeGroup.error?.message || "Couldn't delete — try again."
+    : undefined;
+
+  return {
+    isConfirming,
+    isPending: deleteEnvelopeGroup.isPending,
+    errorMessage,
+    startDelete,
+    cancelDelete,
+    confirmDelete,
+  };
+}
+
 /** Renders one `EnvelopeGroup` heading plus a row per sub-envelope in it, plus its "+ Add sub-envelope" form. */
 function EnvelopeGroupSection({
   group,
@@ -124,6 +165,7 @@ function EnvelopeGroupSection({
   accounts: readonly Account[];
 }) {
   const edit = useEnvelopeGroupEdit(group);
+  const del = useEnvelopeGroupDelete(group);
   return (
     <View style={styles.section}>
       {edit.isEditing ? (
@@ -137,12 +179,16 @@ function EnvelopeGroupSection({
           onSave={edit.handleSave}
         />
       ) : (
-        <View style={styles.groupHeading}>
-          <Text style={styles.groupName}>{group.name}</Text>
-          <Pressable style={styles.editButton} onPress={edit.startEdit}>
-            <Text style={styles.editButtonText}>Edit</Text>
-          </Pressable>
-        </View>
+        <EnvelopeGroupHeadingDisplay
+          group={group}
+          isConfirmingDelete={del.isConfirming}
+          isDeletePending={del.isPending}
+          deleteErrorMessage={del.errorMessage}
+          onEdit={edit.startEdit}
+          onStartDelete={del.startDelete}
+          onCancelDelete={del.cancelDelete}
+          onConfirmDelete={del.confirmDelete}
+        />
       )}
       {subEnvelopes.map((subEnvelope) => (
         <SubEnvelopeRow
@@ -153,6 +199,57 @@ function EnvelopeGroupSection({
         />
       ))}
       <AddSubEnvelopeForm groupId={group.id} accounts={accounts} />
+    </View>
+  );
+}
+
+/**
+ * `EnvelopeGroupSection`'s non-editing heading display: group name plus Edit
+ * and Delete controls, the latter revealing an inline confirmation — split
+ * out to keep `EnvelopeGroupSection` under the line/complexity caps. Mirrors
+ * `more.tsx`'s `CategoryRowDisplay` exactly.
+ */
+function EnvelopeGroupHeadingDisplay(props: {
+  group: EnvelopeGroup;
+  isConfirmingDelete: boolean;
+  isDeletePending: boolean;
+  deleteErrorMessage: string | undefined;
+  onEdit: () => void;
+  onStartDelete: () => void;
+  onCancelDelete: () => void;
+  onConfirmDelete: () => void;
+}) {
+  const { group } = props;
+  const headingActionsDisabled = props.isConfirmingDelete || props.isDeletePending;
+  return (
+    <View>
+      <View style={styles.groupHeading}>
+        <Text style={styles.groupName}>{group.name}</Text>
+        <View style={styles.rowButtons}>
+          <Pressable
+            style={styles.editButton}
+            disabled={headingActionsDisabled}
+            onPress={props.onEdit}
+          >
+            <Text style={styles.editButtonText}>Edit</Text>
+          </Pressable>
+          <Pressable
+            style={styles.editButton}
+            disabled={headingActionsDisabled}
+            onPress={props.onStartDelete}
+          >
+            <Text style={styles.editButtonText}>Delete</Text>
+          </Pressable>
+        </View>
+      </View>
+      {props.isConfirmingDelete && (
+        <EnvelopeGroupDeleteConfirm
+          isPending={props.isDeletePending}
+          errorMessage={props.deleteErrorMessage}
+          onCancel={props.onCancelDelete}
+          onConfirm={props.onConfirmDelete}
+        />
+      )}
     </View>
   );
 }
@@ -188,6 +285,34 @@ function EnvelopeGroupEditFields(props: {
           onPress={props.onSave}
         >
           <Text>{props.isPending ? "Saving…" : "Save"}</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Inline "Delete this group?" confirmation revealed by `EnvelopeGroupSection`'s
+ * heading Delete button — shows the mutation's server-provided error message
+ * (e.g. "still in use") when the delete fails, and stays open on error so the
+ * user can read it. Mirrors `more.tsx`'s `CategoryDeleteConfirm` exactly.
+ */
+function EnvelopeGroupDeleteConfirm(props: {
+  isPending: boolean;
+  errorMessage: string | undefined;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <View style={styles.form}>
+      <Text>Delete this group?</Text>
+      {props.errorMessage !== undefined && <Text style={styles.error}>{props.errorMessage}</Text>}
+      <View style={styles.formButtons}>
+        <Pressable style={styles.formButton} disabled={props.isPending} onPress={props.onCancel}>
+          <Text>Cancel</Text>
+        </Pressable>
+        <Pressable style={styles.formButton} disabled={props.isPending} onPress={props.onConfirm}>
+          <Text>{props.isPending ? "Deleting…" : "Confirm"}</Text>
         </Pressable>
       </View>
     </View>
@@ -259,10 +384,39 @@ function useSubEnvelopeEdit(subEnvelope: SubEnvelope) {
 }
 
 /**
+ * `SubEnvelopeRow`'s Archive/Unarchive state and mutations — split into its
+ * own hook so `SubEnvelopeRow` itself stays under the line/complexity caps.
+ * Mirrors `more.tsx`'s `useAccountArchive` exactly.
+ */
+function useSubEnvelopeArchive(subEnvelope: SubEnvelope) {
+  const utils = trpc.useUtils();
+  const archiveSubEnvelope = trpc.reference.archiveSubEnvelope.useMutation({
+    onSuccess: () => void utils.reference.subEnvelopes.invalidate(),
+  });
+  const unarchiveSubEnvelope = trpc.reference.unarchiveSubEnvelope.useMutation({
+    onSuccess: () => void utils.reference.subEnvelopes.invalidate(),
+  });
+
+  function toggleArchive() {
+    if (subEnvelope.isArchived) {
+      unarchiveSubEnvelope.mutate({ id: subEnvelope.id });
+    } else {
+      archiveSubEnvelope.mutate({ id: subEnvelope.id });
+    }
+  }
+
+  return {
+    toggleArchive,
+    isPending: archiveSubEnvelope.isPending || unarchiveSubEnvelope.isPending,
+    isError: archiveSubEnvelope.isError || unarchiveSubEnvelope.isError,
+  };
+}
+
+/**
  * Renders one sub-envelope's name + its balance, "…" while still loading,
- * plus an "Edit" control that swaps in pre-filled `SubEnvelopeEditFields`
- * (name + account multi-select) instead of the balance display, mirroring
- * `more.tsx`'s `AccountRow` display/edit swap.
+ * plus Edit and Archive/Unarchive controls that swap in pre-filled
+ * `SubEnvelopeEditFields` (name + account multi-select) instead of the
+ * balance display, mirroring `more.tsx`'s `AccountRow` display/edit swap.
  */
 function SubEnvelopeRow({
   subEnvelope,
@@ -274,6 +428,7 @@ function SubEnvelopeRow({
   accounts: readonly Account[];
 }) {
   const edit = useSubEnvelopeEdit(subEnvelope);
+  const archive = useSubEnvelopeArchive(subEnvelope);
 
   if (edit.isEditing) {
     return (
@@ -292,21 +447,69 @@ function SubEnvelopeRow({
     );
   }
 
+  return (
+    <SubEnvelopeRowDisplay
+      subEnvelope={subEnvelope}
+      balanceQuery={balanceQuery}
+      onEdit={edit.startEdit}
+      onToggleArchive={archive.toggleArchive}
+      isArchivePending={archive.isPending}
+      isArchiveError={archive.isError}
+    />
+  );
+}
+
+/**
+ * `SubEnvelopeRow`'s non-editing display: name (with an "(archived)" suffix
+ * when applicable) plus its balance and Edit/Archive controls — split out to
+ * keep `SubEnvelopeRow` under the line/complexity caps.
+ */
+function SubEnvelopeRowDisplay(props: {
+  subEnvelope: SubEnvelope;
+  balanceQuery: BalanceQuery | undefined;
+  onEdit: () => void;
+  onToggleArchive: () => void;
+  isArchivePending: boolean;
+  isArchiveError: boolean;
+}) {
+  const { subEnvelope, balanceQuery } = props;
   const balanceText =
     balanceQuery === undefined || balanceQuery.isPending
       ? "…"
       : balanceQuery.isError
         ? "—"
         : formatCents(balanceQuery.data);
+  const archiveLabel = subEnvelope.isArchived ? "Unarchive" : "Archive";
   return (
-    <View style={styles.row}>
-      <Text style={styles.subEnvelopeName}>{subEnvelope.name}</Text>
-      <View style={styles.rowButtons}>
-        <Text style={styles.subEnvelopeBalance}>{balanceText}</Text>
-        <Pressable style={styles.editButton} onPress={edit.startEdit}>
-          <Text style={styles.editButtonText}>Edit</Text>
-        </Pressable>
+    <View>
+      <View style={styles.row}>
+        <Text style={styles.subEnvelopeName}>
+          {subEnvelope.name}
+          {subEnvelope.isArchived ? " (archived)" : ""}
+        </Text>
+        <View style={styles.rowButtons}>
+          <Text style={styles.subEnvelopeBalance}>{balanceText}</Text>
+          <Pressable
+            style={styles.editButton}
+            disabled={props.isArchivePending}
+            onPress={props.onEdit}
+          >
+            <Text style={styles.editButtonText}>Edit</Text>
+          </Pressable>
+          <Pressable
+            style={styles.editButton}
+            disabled={props.isArchivePending}
+            onPress={props.onToggleArchive}
+          >
+            <Text style={styles.editButtonText}>
+              {props.isArchivePending ? "…" : archiveLabel}
+            </Text>
+          </Pressable>
+        </View>
       </View>
+      {props.isArchiveError && (
+        <Text style={[styles.error, styles.rowError]}>Couldn&apos;t update — try again.</Text>
+      )}
     </View>
   );
 }
@@ -665,6 +868,9 @@ const styles = StyleSheet.create({
   rowButtons: {
     flexDirection: "row",
     alignItems: "center",
+  },
+  rowError: {
+    paddingLeft: 12,
   },
   addButton: {
     marginTop: 8,

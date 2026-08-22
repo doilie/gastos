@@ -314,6 +314,7 @@ const zeroAccountFund: SubEnvelope = {
   name: "Unlinked Fund",
   groupId: envelopeGroupIdFromString("grp-1"),
   accountIds: [],
+  isArchived: false,
 };
 
 const zeroAccountLine: BudgetLine = createBudgetLine({
