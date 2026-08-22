@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react-native";
+import { fireEvent, render, screen } from "@testing-library/react-native";
 
 jest.mock("../../lib/trpc", () => ({
   trpc: {
@@ -9,16 +9,24 @@ jest.mock("../../lib/trpc", () => ({
       budgetLines: {
         useQuery: jest.fn(),
       },
+      applyBudgetLine: {
+        useMutation: jest.fn(),
+      },
     },
     reference: {
       subEnvelopes: {
         useQuery: jest.fn(),
       },
+      accounts: {
+        useQuery: jest.fn(),
+      },
     },
+    useUtils: jest.fn(),
   },
 }));
 
 import {
+  type Account,
   type BudgetLine,
   type PaydaySchedule,
   type SubEnvelope,
@@ -26,9 +34,11 @@ import {
   budgetLineIdFromString,
   budgetPeriodContaining,
   centsFromInt,
+  createAccount,
   createBudgetLine,
   createPaydaySchedule,
   createSubEnvelope,
+  currencyCodeFromString,
   envelopeGroupIdFromString,
   formatCents,
   ledgerDateFromString,
@@ -49,12 +59,32 @@ interface MockQueryResult<T> {
   data: T | undefined;
 }
 
+// Mirrors QuickAddForm.test.tsx's `MockMutationResult` pattern: the
+// component only reads `mutate`, `isPending`, `isSuccess`, and `isError` off
+// the mutation result.
+interface MockMutationResult {
+  mutate: jest.Mock;
+  isPending: boolean;
+  isSuccess: boolean;
+  isError: boolean;
+}
+
 const mockPaydaySchedulesUseQuery = trpc.budget.paydaySchedules
   .useQuery as unknown as jest.Mock<MockQueryResult<PaydaySchedule[]>>;
 const mockBudgetLinesUseQuery = trpc.budget.budgetLines
   .useQuery as unknown as jest.Mock<MockQueryResult<BudgetLine[]>>;
 const mockSubEnvelopesUseQuery = trpc.reference.subEnvelopes
   .useQuery as unknown as jest.Mock<MockQueryResult<SubEnvelope[]>>;
+const mockAccountsUseQuery = trpc.reference.accounts
+  .useQuery as unknown as jest.Mock<MockQueryResult<Account[]>>;
+const mockApplyBudgetLineUseMutation = trpc.budget.applyBudgetLine
+  .useMutation as unknown as jest.Mock<MockMutationResult>;
+const mockUseUtils = trpc.useUtils as unknown as jest.Mock<{
+  ledger: {
+    subEnvelopeBalance: { invalidate: jest.Mock };
+    transactions: { invalidate: jest.Mock };
+  };
+}>;
 
 /** A pending query result, used for the "still loading" states. */
 function pending<T>(): MockQueryResult<T> {
@@ -71,10 +101,36 @@ function errored<T>(): MockQueryResult<T> {
   return { isPending: false, isError: true, data: undefined };
 }
 
+function mockMutationResult(
+  overrides: Partial<MockMutationResult> = {},
+): MockMutationResult {
+  return {
+    mutate: jest.fn(),
+    isPending: false,
+    isSuccess: false,
+    isError: false,
+    ...overrides,
+  };
+}
+
+beforeEach(() => {
+  mockAccountsUseQuery.mockReturnValue(success([]));
+  mockApplyBudgetLineUseMutation.mockReturnValue(mockMutationResult());
+  mockUseUtils.mockReturnValue({
+    ledger: {
+      subEnvelopeBalance: { invalidate: jest.fn() },
+      transactions: { invalidate: jest.fn() },
+    },
+  });
+});
+
 afterEach(() => {
   mockPaydaySchedulesUseQuery.mockReset();
   mockBudgetLinesUseQuery.mockReset();
   mockSubEnvelopesUseQuery.mockReset();
+  mockAccountsUseQuery.mockReset();
+  mockApplyBudgetLineUseMutation.mockReset();
+  mockUseUtils.mockReset();
 });
 
 describe("BudgetScreen loading state", () => {
@@ -107,6 +163,17 @@ describe("BudgetScreen loading state", () => {
 
     expect(getByText("Loading…")).toBeTruthy();
   });
+
+  it("renders Loading… while accounts is pending (not the other queries)", async () => {
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([]));
+    mockAccountsUseQuery.mockReturnValue(pending());
+
+    const { getByText } = await render(<BudgetScreen />);
+
+    expect(getByText("Loading…")).toBeTruthy();
+  });
 });
 
 describe("BudgetScreen error state", () => {
@@ -134,6 +201,17 @@ describe("BudgetScreen error state", () => {
     mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
     mockBudgetLinesUseQuery.mockReturnValue(success([]));
     mockSubEnvelopesUseQuery.mockReturnValue(errored());
+
+    const { getByText } = await render(<BudgetScreen />);
+
+    expect(getByText("Something went wrong.")).toBeTruthy();
+  });
+
+  it("renders an error message when accounts errors (not the other queries)", async () => {
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([]));
+    mockAccountsUseQuery.mockReturnValue(errored());
 
     const { getByText } = await render(<BudgetScreen />);
 
@@ -196,5 +274,143 @@ describe("BudgetScreen success state", () => {
 
     expect(getByText("sub-unknown")).toBeTruthy();
     expect(getByText("Unmatched allocation")).toBeTruthy();
+  });
+});
+
+const accountA: Account = createAccount({
+  id: accountIdFromString("acc-1"),
+  name: "Checking",
+  currency: currencyCodeFromString("USD"),
+});
+
+const accountB: Account = createAccount({
+  id: accountIdFromString("acc-2"),
+  name: "Savings",
+  currency: currencyCodeFromString("USD"),
+});
+
+const twoAccountFund: SubEnvelope = createSubEnvelope({
+  id: subEnvelopeIdFromString("sub-2"),
+  name: "Shared Fund",
+  groupId: envelopeGroupIdFromString("grp-1"),
+  accountIds: [accountA.id, accountB.id],
+});
+
+const twoAccountLine: BudgetLine = createBudgetLine({
+  id: budgetLineIdFromString("line-3"),
+  budgetPeriod: budgetPeriodContaining(ledgerDateFromString("2024-06-15")),
+  paydayDate: ledgerDateFromString("2024-06-15"),
+  subEnvelopeId: twoAccountFund.id,
+  amount: centsFromInt(20000),
+  description: "Shared allocation",
+});
+
+// Built as a plain object literal, not via `createSubEnvelope`, because that
+// factory rejects an empty `accountIds` — but a real-world sub-envelope with
+// no linked accounts (not yet configured) is exactly the zero-candidate-
+// account case this component must handle.
+const zeroAccountFund: SubEnvelope = {
+  id: subEnvelopeIdFromString("sub-3"),
+  name: "Unlinked Fund",
+  groupId: envelopeGroupIdFromString("grp-1"),
+  accountIds: [],
+};
+
+const zeroAccountLine: BudgetLine = createBudgetLine({
+  id: budgetLineIdFromString("line-4"),
+  budgetPeriod: budgetPeriodContaining(ledgerDateFromString("2024-06-15")),
+  paydayDate: ledgerDateFromString("2024-06-15"),
+  subEnvelopeId: zeroAccountFund.id,
+  amount: centsFromInt(30000),
+  description: "Unlinked allocation",
+});
+
+describe("BudgetLineApplyControls with a single candidate account", () => {
+  it("mutates immediately with that account on Apply, without showing a picker", async () => {
+    const mutate = jest.fn();
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([groceriesLine]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([groceriesFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA]));
+    mockApplyBudgetLineUseMutation.mockReturnValue(mockMutationResult({ mutate }));
+
+    await render(<BudgetScreen />);
+    await fireEvent.press(screen.getByText("Apply"));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate).toHaveBeenCalledWith({
+      budgetLineId: groceriesLine.id,
+      accountId: accountA.id,
+    });
+    expect(screen.queryByText(accountA.name)).toBeNull();
+  });
+});
+
+describe("BudgetLineApplyControls with multiple candidate accounts", () => {
+  it("reveals a picker of account names on Apply, then mutates with the tapped account", async () => {
+    const mutate = jest.fn();
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([twoAccountLine]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([twoAccountFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA, accountB]));
+    mockApplyBudgetLineUseMutation.mockReturnValue(mockMutationResult({ mutate }));
+
+    await render(<BudgetScreen />);
+    await fireEvent.press(screen.getByText("Apply"));
+
+    expect(mutate).not.toHaveBeenCalled();
+    expect(screen.getByText(accountA.name)).toBeTruthy();
+    expect(screen.getByText(accountB.name)).toBeTruthy();
+
+    await fireEvent.press(screen.getByText(accountB.name));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate).toHaveBeenCalledWith({
+      budgetLineId: twoAccountLine.id,
+      accountId: accountB.id,
+    });
+  });
+});
+
+describe("BudgetLineApplyControls with no candidate accounts", () => {
+  it("disables the Apply button", async () => {
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([zeroAccountLine]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([zeroAccountFund]));
+    mockAccountsUseQuery.mockReturnValue(success([]));
+
+    await render(<BudgetScreen />);
+
+    expect(screen.getByText("Apply")).toBeDisabled();
+  });
+});
+
+describe("BudgetLineApplyControls mutation status states", () => {
+  it("renders Applied ✓ on success", async () => {
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([groceriesLine]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([groceriesFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA]));
+    mockApplyBudgetLineUseMutation.mockReturnValue(
+      mockMutationResult({ isSuccess: true }),
+    );
+
+    await render(<BudgetScreen />);
+
+    expect(screen.getByText("Applied ✓")).toBeTruthy();
+  });
+
+  it("renders an inline error message on error", async () => {
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([groceriesLine]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([groceriesFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA]));
+    mockApplyBudgetLineUseMutation.mockReturnValue(
+      mockMutationResult({ isError: true }),
+    );
+
+    await render(<BudgetScreen />);
+
+    expect(screen.getByText("Couldn't apply — try again.")).toBeTruthy();
   });
 });
