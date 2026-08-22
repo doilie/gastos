@@ -247,3 +247,210 @@ describe("reference.createCategory — validation errors", () => {
     await app.close();
   });
 });
+
+// NOTE: reference.updateAccount/updateCategory tests below each create a
+// FRESH account/category via createAccount/createCategory first, then update
+// THAT record — never a seeded one (e.g. account-checking) — to avoid
+// leaking mutated state into other tests sharing this singleton in-memory
+// store, per this file's existing createAccount/createCategory precedent.
+
+describe("reference.updateAccount — success", () => {
+  it("updates name only, leaving currency/isArchived/id unchanged, and persists it", async () => {
+    const app = buildServer();
+    const created = await mutateReference<CreatedAccount>(app, "createAccount", {
+      name: "Original Name",
+      currency: "PHP",
+    });
+
+    const updated = await mutateReference<CreatedAccount>(app, "updateAccount", {
+      id: created.id,
+      name: "Renamed Account",
+    });
+
+    expect(updated.id).toBe(created.id);
+    expect(updated.name).toBe("Renamed Account");
+    expect(updated.currency).toBe(created.currency);
+    expect(updated.isArchived).toBe(created.isArchived);
+
+    const allAccounts = await queryReference<CreatedAccount[]>(app, "accounts");
+    const found = allAccounts.find((account) => account.id === created.id);
+    expect(found).toEqual(updated);
+    await app.close();
+  });
+
+  it("updates currency only, leaving name/id unchanged, and persists it", async () => {
+    const app = buildServer();
+    const created = await mutateReference<CreatedAccount>(app, "createAccount", {
+      name: "Currency Test Account",
+      currency: "PHP",
+    });
+
+    const updated = await mutateReference<CreatedAccount>(app, "updateAccount", {
+      id: created.id,
+      currency: "USD",
+    });
+
+    expect(updated.id).toBe(created.id);
+    expect(updated.name).toBe(created.name);
+    expect(updated.currency).toBe("USD");
+
+    const allAccounts = await queryReference<CreatedAccount[]>(app, "accounts");
+    const found = allAccounts.find((account) => account.id === created.id);
+    expect(found).toEqual(updated);
+    await app.close();
+  });
+
+  it("updates both name and currency at once, and persists it", async () => {
+    const app = buildServer();
+    const created = await mutateReference<CreatedAccount>(app, "createAccount", {
+      name: "Both Fields Account",
+      currency: "PHP",
+    });
+
+    const updated = await mutateReference<CreatedAccount>(app, "updateAccount", {
+      id: created.id,
+      name: "Renamed Both",
+      currency: "USD",
+    });
+
+    expect(updated.id).toBe(created.id);
+    expect(updated.name).toBe("Renamed Both");
+    expect(updated.currency).toBe("USD");
+
+    const allAccounts = await queryReference<CreatedAccount[]>(app, "accounts");
+    const found = allAccounts.find((account) => account.id === created.id);
+    expect(found).toEqual(updated);
+    await app.close();
+  });
+});
+
+describe("reference.updateAccount — validation errors", () => {
+  it("returns NOT_FOUND (404) for a well-formed but nonexistent id", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateReferenceExpectingError(app, "updateAccount", {
+      id: "account-does-not-exist",
+      name: "Doesn't Matter",
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("returns a non-2xx (INTERNAL_SERVER_ERROR/500) for an invalid lowercase currency code, and does not change the account", async () => {
+    const app = buildServer();
+    const created = await mutateReference<CreatedAccount>(app, "createAccount", {
+      name: "Invalid Currency Update Account",
+      currency: "PHP",
+    });
+
+    const { statusCode, error } = await mutateReferenceExpectingError(app, "updateAccount", {
+      id: created.id,
+      currency: "usd",
+    });
+    expect(statusCode).toBe(500);
+    expect(error.data.code).toBe("INTERNAL_SERVER_ERROR");
+
+    const allAccounts = await queryReference<CreatedAccount[]>(app, "accounts");
+    const found = allAccounts.find((account) => account.id === created.id);
+    expect(found?.currency).toBe("PHP");
+    await app.close();
+  });
+});
+
+describe("reference.updateCategory — success", () => {
+  it("updates name only, leaving isIncome/id unchanged, and persists it", async () => {
+    const app = buildServer();
+    const created = await mutateReference<CreatedCategory>(app, "createCategory", {
+      name: "Original Category Name",
+    });
+
+    const updated = await mutateReference<CreatedCategory>(app, "updateCategory", {
+      id: created.id,
+      name: "Renamed Category",
+    });
+
+    expect(updated.id).toBe(created.id);
+    expect(updated.name).toBe("Renamed Category");
+    expect(updated.isIncome).toBe(created.isIncome);
+
+    const allCategories = await queryReference<CreatedCategory[]>(app, "categories");
+    const found = allCategories.find((category) => category.id === created.id);
+    expect(found).toEqual(updated);
+    await app.close();
+  });
+
+  it("updates isIncome only, leaving name/id unchanged, and persists it", async () => {
+    const app = buildServer();
+    const created = await mutateReference<CreatedCategory>(app, "createCategory", {
+      name: "IsIncome Test Category",
+    });
+
+    const updated = await mutateReference<CreatedCategory>(app, "updateCategory", {
+      id: created.id,
+      isIncome: true,
+    });
+
+    expect(updated.id).toBe(created.id);
+    expect(updated.name).toBe(created.name);
+    expect(updated.isIncome).toBe(true);
+
+    const allCategories = await queryReference<CreatedCategory[]>(app, "categories");
+    const found = allCategories.find((category) => category.id === created.id);
+    expect(found).toEqual(updated);
+    await app.close();
+  });
+
+  it("updates both name and isIncome at once, and persists it", async () => {
+    const app = buildServer();
+    const created = await mutateReference<CreatedCategory>(app, "createCategory", {
+      name: "Both Fields Category",
+    });
+
+    const updated = await mutateReference<CreatedCategory>(app, "updateCategory", {
+      id: created.id,
+      name: "Renamed Both Category",
+      isIncome: true,
+    });
+
+    expect(updated.id).toBe(created.id);
+    expect(updated.name).toBe("Renamed Both Category");
+    expect(updated.isIncome).toBe(true);
+
+    const allCategories = await queryReference<CreatedCategory[]>(app, "categories");
+    const found = allCategories.find((category) => category.id === created.id);
+    expect(found).toEqual(updated);
+    await app.close();
+  });
+});
+
+describe("reference.updateCategory — validation errors", () => {
+  it("returns NOT_FOUND (404) for a well-formed but nonexistent id", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateReferenceExpectingError(app, "updateCategory", {
+      id: "category-does-not-exist",
+      name: "Doesn't Matter",
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("returns a non-2xx (INTERNAL_SERVER_ERROR/500) for an empty/whitespace-only name, and does not change the category", async () => {
+    const app = buildServer();
+    const created = await mutateReference<CreatedCategory>(app, "createCategory", {
+      name: "Empty Name Update Category",
+    });
+
+    const { statusCode, error } = await mutateReferenceExpectingError(app, "updateCategory", {
+      id: created.id,
+      name: "   ",
+    });
+    expect(statusCode).toBe(500);
+    expect(error.data.code).toBe("INTERNAL_SERVER_ERROR");
+
+    const allCategories = await queryReference<CreatedCategory[]>(app, "categories");
+    const found = allCategories.find((category) => category.id === created.id);
+    expect(found?.name).toBe("Empty Name Update Category");
+    await app.close();
+  });
+});

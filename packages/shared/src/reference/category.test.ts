@@ -1,7 +1,7 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { categoryIdFromString, createCategory } from "./category";
+import { categoryIdFromString, createCategory, updateCategory } from "./category";
 
 describe("categoryIdFromString", () => {
   it("accepts a normal non-empty string", () => {
@@ -62,5 +62,50 @@ describe("createCategory", () => {
     ["whitespace-only", "   "],
   ])("throws on %s name (%p)", (_label, name) => {
     expect(() => createCategory({ id, name })).toThrow();
+  });
+});
+
+describe("updateCategory", () => {
+  const id = categoryIdFromString("cat-1");
+  const category = createCategory({ id, name: "Groceries", isIncome: false });
+
+  it("updates only name, leaving isIncome/id unchanged", () => {
+    const updated = updateCategory(category, { name: "Dining" });
+    expect(updated.name).toBe("Dining");
+    expect(updated.isIncome).toBe(category.isIncome);
+    expect(updated.id).toBe(id);
+  });
+
+  it("updates only isIncome, leaving name/id unchanged", () => {
+    const updated = updateCategory(category, { isIncome: true });
+    expect(updated.isIncome).toBe(true);
+    expect(updated.name).toBe(category.name);
+    expect(updated.id).toBe(id);
+  });
+
+  it("updates both name and isIncome at once", () => {
+    const updated = updateCategory(category, { name: "Salary", isIncome: true });
+    expect(updated).toEqual({
+      id,
+      name: "Salary",
+      isIncome: true,
+    });
+  });
+
+  it("is a no-op when updates is an empty object", () => {
+    const updated = updateCategory(category, {});
+    expect(updated).toEqual(category);
+  });
+
+  it.each([
+    ["empty string", ""],
+    ["whitespace-only", "   "],
+  ])("throws on %s name (%p)", (_label, name) => {
+    expect(() => updateCategory(category, { name })).toThrow();
+  });
+
+  it("never changes id, regardless of updates", () => {
+    const updated = updateCategory(category, { name: "Whatever", isIncome: true });
+    expect(updated.id).toBe(category.id);
   });
 });

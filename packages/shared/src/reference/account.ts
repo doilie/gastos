@@ -53,3 +53,22 @@ export function createAccount(input: {
     isArchived: false,
   };
 }
+
+/**
+ * Applies a partial `name`/`currency` update to `account`, validating `name`
+ * the same way `createAccount` does when provided. `id` and `isArchived` are
+ * always carried over unchanged — this function never touches either
+ * (`isArchived` belongs to a separate, not-yet-scoped "Archive" increment).
+ */
+export function updateAccount(
+  account: Account,
+  updates: { name?: string; currency?: CurrencyCode },
+): Account {
+  return {
+    ...account,
+    ...(updates.name === undefined
+      ? {}
+      : { name: assertNonEmptyName(updates.name, "updateAccount") }),
+    ...(updates.currency === undefined ? {} : { currency: updates.currency }),
+  };
+}

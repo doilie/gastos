@@ -49,3 +49,21 @@ export function createCategory(input: {
     isIncome: input.isIncome ?? false,
   };
 }
+
+/**
+ * Applies a partial `name`/`isIncome` update to `category`, validating `name`
+ * the same way `createCategory` does when provided. `id` is always carried
+ * over unchanged.
+ */
+export function updateCategory(
+  category: Category,
+  updates: { name?: string; isIncome?: boolean },
+): Category {
+  return {
+    ...category,
+    ...(updates.name === undefined
+      ? {}
+      : { name: assertNonEmptyName(updates.name, "updateCategory") }),
+    ...(updates.isIncome === undefined ? {} : { isIncome: updates.isIncome }),
+  };
+}

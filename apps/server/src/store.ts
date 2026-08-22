@@ -221,9 +221,31 @@ export function addAccount(account: Account): void {
   accounts.push(account);
 }
 
+/**
+ * Overwrites the existing account with the same `id` as `account`. Trusts
+ * the caller (the router) already validated the id exists — no NOT_FOUND
+ * handling here, mirroring `addAccount`'s "store just does the mechanical
+ * operation" split.
+ */
+export function replaceAccount(account: Account): void {
+  const index = accounts.findIndex((existing) => existing.id === account.id);
+  accounts[index] = account;
+}
+
 /** Appends `category` to the in-memory store. */
 export function addCategory(category: Category): void {
   categories.push(category);
+}
+
+/**
+ * Overwrites the existing category with the same `id` as `category`. Trusts
+ * the caller (the router) already validated the id exists — no NOT_FOUND
+ * handling here, mirroring `addCategory`'s "store just does the mechanical
+ * operation" split.
+ */
+export function replaceCategory(category: Category): void {
+  const index = categories.findIndex((existing) => existing.id === category.id);
+  categories[index] = category;
 }
 
 /** Returns the seeded envelope groups. */
