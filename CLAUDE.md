@@ -216,6 +216,17 @@ graduated to its own dedicated test file, which made `it.each([])` throw and bro
 suite; this was a real bug caught and fixed as part of this increment, not a hypothetical.
 `PlaceholderScreen` itself and its own test remain, available for any future stub screen.
 
+Increment 31 begins the "More tab CRUD" thread (`req/what-i-want.txt`: "account crud", "category
+crud") with a Create-only slice: `reference.createAccount`/`createCategory` tRPC mutations.
+Update/Archive/Delete are deferred to later increments. Both generate the entity id server-side via
+`randomUUID()`, build it through the existing `@gastos/shared` factory, and append to the store
+(`accounts`/`categories` are now internally-mutable arrays, mirroring `transactions`). Validation
+errors (a malformed currency code, an empty name) propagate unwrapped as plain `Error`s rather than
+`TRPCError`s — surfacing as 500/`INTERNAL_SERVER_ERROR`, not 400/`BAD_REQUEST` — matching
+`ledger.addTransaction`'s existing convention for domain-level validation failures (only Zod
+shape-validation failures return `BAD_REQUEST`). No UI wiring yet — the More tab's "+ Add" forms
+are the next piece of this thread.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
