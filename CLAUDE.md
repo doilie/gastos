@@ -203,6 +203,19 @@ only Zod schema violations (e.g. `month` outside 1-12) return `BAD_REQUEST`. Liv
 against the seeded 2026-08 data before handoff. The Reports tab UI is the remaining piece of this
 thread.
 
+Increment 30 wires the Reports tab (`apps/mobile/app/(tabs)/reports.tsx`) to live data, replacing
+its `PlaceholderScreen` stub — read-only display of the current calendar month's income total and
+per-category spending (`reporting.categorySpending`), category ids resolved to friendly names via
+`trpc.reference.categories` (fallback to the raw id if unmatched, same pattern as every other
+tab). No month picker/navigation to past or future months — current month only, matching the "MVP
+read-only first" scope every other tab followed (Cards shows only the current billing cycle,
+Budget has no apply-tracking). This is the last of the 6 tabs to move off `PlaceholderScreen`,
+completing the Reporting thread's UI. `apps/mobile/app/(tabs)/screens.test.tsx` (the shared
+placeholder-screen smoke test) was deleted — its `it.each` table had gone empty once every tab
+graduated to its own dedicated test file, which made `it.each([])` throw and broke the mobile
+suite; this was a real bug caught and fixed as part of this increment, not a hypothetical.
+`PlaceholderScreen` itself and its own test remain, available for any future stub screen.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
