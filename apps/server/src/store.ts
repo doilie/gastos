@@ -276,9 +276,31 @@ export function addEnvelopeGroup(envelopeGroup: EnvelopeGroup): void {
   envelopeGroups.push(envelopeGroup);
 }
 
+/**
+ * Overwrites the existing envelope group with the same `id` as
+ * `envelopeGroup`. Trusts the caller (the router) already validated the id
+ * exists — no NOT_FOUND handling here, mirroring `replaceAccount`'s "store
+ * just does the mechanical operation" split.
+ */
+export function replaceEnvelopeGroup(envelopeGroup: EnvelopeGroup): void {
+  const index = envelopeGroups.findIndex((existing) => existing.id === envelopeGroup.id);
+  envelopeGroups[index] = envelopeGroup;
+}
+
 /** Appends `subEnvelope` to the in-memory store. */
 export function addSubEnvelope(subEnvelope: SubEnvelope): void {
   subEnvelopes.push(subEnvelope);
+}
+
+/**
+ * Overwrites the existing sub-envelope with the same `id` as `subEnvelope`.
+ * Trusts the caller (the router) already validated the id exists — no
+ * NOT_FOUND handling here, mirroring `replaceAccount`'s "store just does the
+ * mechanical operation" split.
+ */
+export function replaceSubEnvelope(subEnvelope: SubEnvelope): void {
+  const index = subEnvelopes.findIndex((existing) => existing.id === subEnvelope.id);
+  subEnvelopes[index] = subEnvelope;
 }
 
 /** Returns the seeded transactions. */

@@ -671,7 +671,13 @@ describe("reference.createSubEnvelope — success", () => {
   });
 });
 
-describe("reference.createSubEnvelope — validation errors", () => {
+// Split into two `describe` blocks (rather than one long one) purely to stay
+// under this repo's max-lines-per-function ESLint cap on the `describe`
+// callback itself — grouped by NOT_FOUND-style id-lookup failures vs.
+// shape/factory-level validation failures. No test case's behavior or
+// assertions changed as part of this split.
+
+describe("reference.createSubEnvelope — validation errors (id lookup)", () => {
   it("returns NOT_FOUND (404) for a nonexistent groupId, and does not persist it", async () => {
     const app = buildServer();
     const { statusCode, error } = await mutateReferenceExpectingError(app, "createSubEnvelope", {
@@ -709,7 +715,9 @@ describe("reference.createSubEnvelope — validation errors", () => {
     ).toBe(false);
     await app.close();
   });
+});
 
+describe("reference.createSubEnvelope — validation errors (shape/factory)", () => {
   it("returns BAD_REQUEST (400) for an empty accountIds array (Zod's .min(1) shape validation)", async () => {
     const app = buildServer();
     const group = await mutateReference<CreatedEnvelopeGroup>(app, "createEnvelopeGroup", {
@@ -775,6 +783,184 @@ describe("reference.createSubEnvelope — validation errors", () => {
     expect(
       allSubEnvelopes.some((subEnvelope) => subEnvelope.name === "Duplicate Account Sub Envelope"),
     ).toBe(false);
+    await app.close();
+  });
+});
+
+// NOTE: reference.updateEnvelopeGroup/updateSubEnvelope tests below each
+// create a FRESH EnvelopeGroup/SubEnvelope via createEnvelopeGroup/
+// createSubEnvelope first, then update THAT record — never a seeded one —
+// per this file's existing createAccount/updateAccount precedent. They use
+// the seeded "account-checking"/"account-savings" account ids (see store.ts)
+// as real accounts to satisfy accountIds validation.
+
+describe("reference.updateEnvelopeGroup — success", () => {
+  it("updates name only, leaving id unchanged, and persists it", async () => {
+    const app = buildServer();
+    const created = await mutateReference<CreatedEnvelopeGroup>(app, "createEnvelopeGroup", {
+      name: "Original Group Name",
+    });
+
+    const updated = await mutateReference<CreatedEnvelopeGroup>(app, "updateEnvelopeGroup", {
+      id: created.id,
+      name: "Renamed Group",
+    });
+
+    expect(updated.id).toBe(created.id);
+    expect(updated.name).toBe("Renamed Group");
+
+    const allGroups = await queryReference<CreatedEnvelopeGroup[]>(app, "envelopeGroups");
+    const found = allGroups.find((group) => group.id === created.id);
+    expect(found).toEqual(updated);
+    await app.close();
+  });
+});
+
+describe("reference.updateEnvelopeGroup — validation errors", () => {
+  it("returns NOT_FOUND (404) for a well-formed but nonexistent id", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateReferenceExpectingError(app, "updateEnvelopeGroup", {
+      id: "envelope-group-does-not-exist",
+      name: "Doesn't Matter",
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("returns a non-2xx (INTERNAL_SERVER_ERROR/500) for an empty/whitespace-only name, and does not change the group", async () => {
+    const app = buildServer();
+    const created = await mutateReference<CreatedEnvelopeGroup>(app, "createEnvelopeGroup", {
+      name: "Empty Name Update Group",
+    });
+
+    const { statusCode, error } = await mutateReferenceExpectingError(app, "updateEnvelopeGroup", {
+      id: created.id,
+      name: "   ",
+    });
+    expect(statusCode).toBe(500);
+    expect(error.data.code).toBe("INTERNAL_SERVER_ERROR");
+
+    const allGroups = await queryReference<CreatedEnvelopeGroup[]>(app, "envelopeGroups");
+    const found = allGroups.find((group) => group.id === created.id);
+    expect(found?.name).toBe("Empty Name Update Group");
+    await app.close();
+  });
+});
+
+describe("reference.updateSubEnvelope — success", () => {
+  it("updates name only, leaving accountIds/groupId/id unchanged, and persists it", async () => {
+    const app = buildServer();
+    const group = await mutateReference<CreatedEnvelopeGroup>(app, "createEnvelopeGroup", {
+      name: "Update SubEnvelope Name Group",
+    });
+    const created = await mutateReference<CreatedSubEnvelope>(app, "createSubEnvelope", {
+      name: "Original SubEnvelope Name",
+      groupId: group.id,
+      accountIds: ["account-checking"],
+    });
+
+    const updated = await mutateReference<CreatedSubEnvelope>(app, "updateSubEnvelope", {
+      id: created.id,
+      name: "Renamed SubEnvelope",
+    });
+
+    expect(updated.id).toBe(created.id);
+    expect(updated.groupId).toBe(created.groupId);
+    expect(updated.accountIds).toEqual(created.accountIds);
+    expect(updated.name).toBe("Renamed SubEnvelope");
+
+    const allSubEnvelopes = await queryReference<CreatedSubEnvelope[]>(app, "subEnvelopes");
+    const found = allSubEnvelopes.find((subEnvelope) => subEnvelope.id === created.id);
+    expect(found).toEqual(updated);
+    await app.close();
+  });
+
+  it("updates accountIds only, leaving name/groupId/id unchanged, and persists it", async () => {
+    const app = buildServer();
+    const group = await mutateReference<CreatedEnvelopeGroup>(app, "createEnvelopeGroup", {
+      name: "Update SubEnvelope AccountIds Group",
+    });
+    const created = await mutateReference<CreatedSubEnvelope>(app, "createSubEnvelope", {
+      name: "AccountIds Test SubEnvelope",
+      groupId: group.id,
+      accountIds: ["account-checking"],
+    });
+
+    const updated = await mutateReference<CreatedSubEnvelope>(app, "updateSubEnvelope", {
+      id: created.id,
+      accountIds: ["account-savings"],
+    });
+
+    expect(updated.id).toBe(created.id);
+    expect(updated.groupId).toBe(created.groupId);
+    expect(updated.name).toBe(created.name);
+    expect(updated.accountIds).toEqual(["account-savings"]);
+
+    const allSubEnvelopes = await queryReference<CreatedSubEnvelope[]>(app, "subEnvelopes");
+    const found = allSubEnvelopes.find((subEnvelope) => subEnvelope.id === created.id);
+    expect(found).toEqual(updated);
+    await app.close();
+  });
+});
+
+describe("reference.updateSubEnvelope — validation errors", () => {
+  it("returns NOT_FOUND (404) for a well-formed but nonexistent id", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateReferenceExpectingError(app, "updateSubEnvelope", {
+      id: "sub-envelope-does-not-exist",
+      name: "Doesn't Matter",
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("returns NOT_FOUND (404) when one of the accountIds does not exist, and does not change accountIds", async () => {
+    const app = buildServer();
+    const group = await mutateReference<CreatedEnvelopeGroup>(app, "createEnvelopeGroup", {
+      name: "Bad Update AccountIds Group",
+    });
+    const created = await mutateReference<CreatedSubEnvelope>(app, "createSubEnvelope", {
+      name: "Bad Update Account SubEnvelope",
+      groupId: group.id,
+      accountIds: ["account-checking"],
+    });
+
+    const { statusCode, error } = await mutateReferenceExpectingError(app, "updateSubEnvelope", {
+      id: created.id,
+      accountIds: ["account-does-not-exist"],
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+
+    const allSubEnvelopes = await queryReference<CreatedSubEnvelope[]>(app, "subEnvelopes");
+    const found = allSubEnvelopes.find((subEnvelope) => subEnvelope.id === created.id);
+    expect(found?.accountIds).toEqual(["account-checking"]);
+    await app.close();
+  });
+
+  it("returns a non-2xx (INTERNAL_SERVER_ERROR/500) for an empty/whitespace-only name, and does not change the sub-envelope", async () => {
+    const app = buildServer();
+    const group = await mutateReference<CreatedEnvelopeGroup>(app, "createEnvelopeGroup", {
+      name: "Empty Name Update SubEnvelope Group",
+    });
+    const created = await mutateReference<CreatedSubEnvelope>(app, "createSubEnvelope", {
+      name: "Empty Name Update SubEnvelope",
+      groupId: group.id,
+      accountIds: ["account-checking"],
+    });
+
+    const { statusCode, error } = await mutateReferenceExpectingError(app, "updateSubEnvelope", {
+      id: created.id,
+      name: "   ",
+    });
+    expect(statusCode).toBe(500);
+    expect(error.data.code).toBe("INTERNAL_SERVER_ERROR");
+
+    const allSubEnvelopes = await queryReference<CreatedSubEnvelope[]>(app, "subEnvelopes");
+    const found = allSubEnvelopes.find((subEnvelope) => subEnvelope.id === created.id);
+    expect(found?.name).toBe("Empty Name Update SubEnvelope");
     await app.close();
   });
 });

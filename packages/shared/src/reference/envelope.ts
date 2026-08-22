@@ -126,6 +126,46 @@ export function createSubEnvelope(input: {
 }
 
 /**
+ * Applies a partial `name` update to `envelopeGroup`, validating `name` the
+ * same way `createEnvelopeGroup` does when provided. `id` is always carried
+ * over unchanged — this function never touches it.
+ */
+export function updateEnvelopeGroup(
+  envelopeGroup: EnvelopeGroup,
+  updates: { name?: string },
+): EnvelopeGroup {
+  return {
+    ...envelopeGroup,
+    ...(updates.name === undefined
+      ? {}
+      : { name: assertNonEmptyName(updates.name, "updateEnvelopeGroup") }),
+  };
+}
+
+/**
+ * Applies a partial `name`/`accountIds` update to `subEnvelope`, validating
+ * each the same way `createSubEnvelope` does when provided. `id` and
+ * `groupId` are always carried over unchanged — this function never touches
+ * either (moving a sub-envelope to a different group is a separate,
+ * not-yet-scoped increment, same rationale as `isArchived` being excluded
+ * from `updateAccount`).
+ */
+export function updateSubEnvelope(
+  subEnvelope: SubEnvelope,
+  updates: { name?: string; accountIds?: readonly AccountId[] },
+): SubEnvelope {
+  return {
+    ...subEnvelope,
+    ...(updates.name === undefined
+      ? {}
+      : { name: assertNonEmptyName(updates.name, "updateSubEnvelope") }),
+    ...(updates.accountIds === undefined
+      ? {}
+      : { accountIds: assertNonEmptyAccountIds(updates.accountIds, "updateSubEnvelope") }),
+  };
+}
+
+/**
  * Builds the singleton Spendable envelope: reserved id/name, no group,
  * allocated over the given accounts (validated same as `createSubEnvelope`).
  */

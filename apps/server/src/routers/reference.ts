@@ -15,10 +15,13 @@ import {
   type EnvelopeGroupId,
   envelopeGroupIdFromString,
   type SubEnvelope,
+  type SubEnvelopeId,
   subEnvelopeIdFromString,
   unarchiveAccount,
   updateAccount,
   updateCategory,
+  updateEnvelopeGroup,
+  updateSubEnvelope,
 } from "@gastos/shared";
 import { TRPCError } from "@trpc/server";
 import { randomUUID } from "node:crypto";
@@ -39,6 +42,8 @@ import {
   getTransactions,
   replaceAccount,
   replaceCategory,
+  replaceEnvelopeGroup,
+  replaceSubEnvelope,
 } from "../store";
 
 /**
@@ -64,8 +69,11 @@ function assertIdExists(
  * SubEnvelope), plus `createAccount`/`createCategory`/`updateAccount`/
  * `updateCategory`/`archiveAccount`/`unarchiveAccount`/`deleteCategory`
  * mutations (the "More tab CRUD" thread), plus `createEnvelopeGroup`/
- * `createSubEnvelope` mutations — the Create-only start of the separate
- * "Envelope CRUD" thread. An account's "delete" is implemented as a
+ * `createSubEnvelope`/`updateEnvelopeGroup`/`updateSubEnvelope` mutations —
+ * the Create+Update pieces of the separate "Envelope CRUD" thread (Archive/
+ * Delete for envelopes remain not-yet-scoped). `updateSubEnvelope` never
+ * reassigns `groupId` — moving a sub-envelope to a different group is a
+ * separate, not-yet-scoped increment. An account's "delete" is implemented as a
  * reversible archive (`isArchived: true`/`false`) rather than a hard delete,
  * since historical `Transaction.accountId` values must keep resolving. A
  * category's "delete" is a real removal from the store, but only when no
@@ -220,5 +228,52 @@ export const referenceRouter = router({
       });
       addSubEnvelope(subEnvelope);
       return subEnvelope;
+    }),
+  updateEnvelopeGroup: publicProcedure
+    .input(z.object({ id: z.string(), name: z.string().optional() }))
+    .mutation(({ input }) => {
+      const id: EnvelopeGroupId = envelopeGroupIdFromString(input.id);
+      assertIdExists(getEnvelopeGroups(), id, `Envelope group "${id}" not found`);
+
+      const existing = getEnvelopeGroups().find((envelopeGroup) => envelopeGroup.id === id);
+      if (existing === undefined) {
+        throw new TRPCError({ code: "NOT_FOUND", message: `Envelope group "${id}" not found` });
+      }
+
+      const updated = updateEnvelopeGroup(existing, {
+        ...(input.name === undefined ? {} : { name: input.name }),
+      });
+      replaceEnvelopeGroup(updated);
+      return updated;
+    }),
+  updateSubEnvelope: publicProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        name: z.string().optional(),
+        accountIds: z.array(z.string()).optional(),
+      }),
+    )
+    .mutation(({ input }) => {
+      const id: SubEnvelopeId = subEnvelopeIdFromString(input.id);
+      assertIdExists(getSubEnvelopes(), id, `Sub-envelope "${id}" not found`);
+
+      const existing = getSubEnvelopes().find((subEnvelope) => subEnvelope.id === id);
+      if (existing === undefined) {
+        throw new TRPCError({ code: "NOT_FOUND", message: `Sub-envelope "${id}" not found` });
+      }
+
+      const accountIds: AccountId[] | undefined = input.accountIds?.map((rawAccountId) => {
+        const accountId: AccountId = accountIdFromString(rawAccountId);
+        assertIdExists(getAccounts(), accountId, `Account "${accountId}" not found`);
+        return accountId;
+      });
+
+      const updated = updateSubEnvelope(existing, {
+        ...(input.name === undefined ? {} : { name: input.name }),
+        ...(accountIds === undefined ? {} : { accountIds }),
+      });
+      replaceSubEnvelope(updated);
+      return updated;
     }),
 });

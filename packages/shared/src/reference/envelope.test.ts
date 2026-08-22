@@ -11,6 +11,8 @@ import {
   SPENDABLE_ENVELOPE_ID,
   SPENDABLE_ENVELOPE_NAME,
   subEnvelopeIdFromString,
+  updateEnvelopeGroup,
+  updateSubEnvelope,
 } from "./envelope";
 
 describe("envelopeGroupIdFromString", () => {
@@ -58,6 +60,34 @@ describe("createEnvelopeGroup", () => {
     ["whitespace-only", "   "],
   ])("throws on %s name (%p)", (_label, name) => {
     expect(() => createEnvelopeGroup({ id, name })).toThrow();
+  });
+});
+
+describe("updateEnvelopeGroup", () => {
+  const id = envelopeGroupIdFromString("grp-1");
+  const original = createEnvelopeGroup({ id, name: "Bills" });
+
+  it("updates name only, leaving id unchanged", () => {
+    const updated = updateEnvelopeGroup(original, { name: "Renamed Bills" });
+    expect(updated.id).toBe(original.id);
+    expect(updated.name).toBe("Renamed Bills");
+  });
+
+  it("is a no-op for an empty updates object, returning an entity equal to the original", () => {
+    const updated = updateEnvelopeGroup(original, {});
+    expect(updated).toEqual(original);
+  });
+
+  it.each([
+    ["empty string", ""],
+    ["whitespace-only", "   "],
+  ])("throws on %s name (%p)", (_label, name) => {
+    expect(() => updateEnvelopeGroup(original, { name })).toThrow();
+  });
+
+  it("never changes id, regardless of updates", () => {
+    const updated = updateEnvelopeGroup(original, { name: "Something Else" });
+    expect(updated.id).toBe(id);
   });
 });
 
@@ -151,6 +181,67 @@ describe("createSubEnvelope", () => {
         accountIds: [acc1],
       }),
     ).toThrow();
+  });
+});
+
+describe("updateSubEnvelope", () => {
+  const id = subEnvelopeIdFromString("sub-1");
+  const groupId = envelopeGroupIdFromString("grp-1");
+  const acc1 = accountIdFromString("acc-1");
+  const acc2 = accountIdFromString("acc-2");
+  const original = createSubEnvelope({ id, name: "Groceries", groupId, accountIds: [acc1] });
+
+  it("updates name only, leaving id/groupId/accountIds unchanged", () => {
+    const updated = updateSubEnvelope(original, { name: "Renamed Groceries" });
+    expect(updated.id).toBe(original.id);
+    expect(updated.groupId).toBe(original.groupId);
+    expect(updated.accountIds).toEqual(original.accountIds);
+    expect(updated.name).toBe("Renamed Groceries");
+  });
+
+  it("updates accountIds only, leaving name/id/groupId unchanged", () => {
+    const updated = updateSubEnvelope(original, { accountIds: [acc2] });
+    expect(updated.id).toBe(original.id);
+    expect(updated.groupId).toBe(original.groupId);
+    expect(updated.name).toBe(original.name);
+    expect(updated.accountIds).toEqual([acc2]);
+  });
+
+  it("updates both name and accountIds at once", () => {
+    const updated = updateSubEnvelope(original, { name: "Renamed Both", accountIds: [acc1, acc2] });
+    expect(updated.id).toBe(original.id);
+    expect(updated.groupId).toBe(original.groupId);
+    expect(updated.name).toBe("Renamed Both");
+    expect(updated.accountIds).toEqual([acc1, acc2]);
+  });
+
+  it("is a no-op for an empty updates object, returning an entity equal to the original", () => {
+    const updated = updateSubEnvelope(original, {});
+    expect(updated).toEqual(original);
+  });
+
+  it.each([
+    ["empty string", ""],
+    ["whitespace-only", "   "],
+  ])("throws on %s name (%p)", (_label, name) => {
+    expect(() => updateSubEnvelope(original, { name })).toThrow();
+  });
+
+  it("throws when accountIds is empty", () => {
+    expect(() => updateSubEnvelope(original, { accountIds: [] })).toThrow();
+  });
+
+  it("throws when accountIds contains a duplicate account id", () => {
+    expect(() => updateSubEnvelope(original, { accountIds: [acc1, acc1] })).toThrow();
+  });
+
+  it("never changes id or groupId, regardless of updates", () => {
+    const updated = updateSubEnvelope(original, {
+      name: "Something Else",
+      accountIds: [acc2],
+    });
+    expect(updated.id).toBe(id);
+    expect(updated.groupId).toBe(groupId);
   });
 });
 
