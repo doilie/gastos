@@ -3,6 +3,7 @@ import {
   type AccountId,
   accountIdFromString,
   archiveAccount,
+  archiveSubEnvelope,
   type Category,
   type CategoryId,
   categoryIdFromString,
@@ -18,6 +19,7 @@ import {
   type SubEnvelopeId,
   subEnvelopeIdFromString,
   unarchiveAccount,
+  unarchiveSubEnvelope,
   updateAccount,
   updateCategory,
   updateEnvelopeGroup,
@@ -34,6 +36,7 @@ import {
   addEnvelopeGroup,
   addSubEnvelope,
   deleteCategory,
+  deleteEnvelopeGroup,
   getAccounts,
   getCardPurchases,
   getCategories,
@@ -69,17 +72,22 @@ function assertIdExists(
  * SubEnvelope), plus `createAccount`/`createCategory`/`updateAccount`/
  * `updateCategory`/`archiveAccount`/`unarchiveAccount`/`deleteCategory`
  * mutations (the "More tab CRUD" thread), plus `createEnvelopeGroup`/
- * `createSubEnvelope`/`updateEnvelopeGroup`/`updateSubEnvelope` mutations —
- * the Create+Update pieces of the separate "Envelope CRUD" thread (Archive/
- * Delete for envelopes remain not-yet-scoped). `updateSubEnvelope` never
+ * `createSubEnvelope`/`updateEnvelopeGroup`/`updateSubEnvelope`/
+ * `archiveSubEnvelope`/`unarchiveSubEnvelope`/`deleteEnvelopeGroup`
+ * mutations — the full "Envelope CRUD" thread. `updateSubEnvelope` never
  * reassigns `groupId` — moving a sub-envelope to a different group is a
  * separate, not-yet-scoped increment. An account's "delete" is implemented as a
  * reversible archive (`isArchived: true`/`false`) rather than a hard delete,
- * since historical `Transaction.accountId` values must keep resolving. A
- * category's "delete" is a real removal from the store, but only when no
- * `Transaction` or `CardPurchase` still references it — otherwise it's
- * rejected with `BAD_REQUEST`. Thin wrappers over the in-memory store — no
- * business logic here, that all lives in `@gastos/shared`.
+ * since historical `Transaction.accountId` values must keep resolving; a
+ * sub-envelope's "delete" mirrors this exactly (`Transaction.subEnvelopeId`
+ * is likewise required/non-null), except the reserved Spendable envelope can
+ * never be archived. A category's "delete" is a real removal from the
+ * store, but only when no `Transaction` or `CardPurchase` still references
+ * it — otherwise it's rejected with `BAD_REQUEST`; an envelope group's
+ * "delete" mirrors this exactly, rejected when any `SubEnvelope` still has a
+ * matching `groupId` (nothing in the ledger references `EnvelopeGroupId`
+ * directly). Thin wrappers over the in-memory store — no business logic
+ * here, that all lives in `@gastos/shared`.
  */
 export const referenceRouter = router({
   accounts: publicProcedure.query(() => getAccounts()),
@@ -275,5 +283,51 @@ export const referenceRouter = router({
       });
       replaceSubEnvelope(updated);
       return updated;
+    }),
+  archiveSubEnvelope: publicProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(({ input }) => {
+      const id: SubEnvelopeId = subEnvelopeIdFromString(input.id);
+      const existing = getSubEnvelopes().find((subEnvelope) => subEnvelope.id === id);
+      if (existing === undefined) {
+        throw new TRPCError({ code: "NOT_FOUND", message: `Sub-envelope "${id}" not found` });
+      }
+
+      const updated = archiveSubEnvelope(existing);
+      replaceSubEnvelope(updated);
+      return updated;
+    }),
+  unarchiveSubEnvelope: publicProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(({ input }) => {
+      const id: SubEnvelopeId = subEnvelopeIdFromString(input.id);
+      const existing = getSubEnvelopes().find((subEnvelope) => subEnvelope.id === id);
+      if (existing === undefined) {
+        throw new TRPCError({ code: "NOT_FOUND", message: `Sub-envelope "${id}" not found` });
+      }
+
+      const updated = unarchiveSubEnvelope(existing);
+      replaceSubEnvelope(updated);
+      return updated;
+    }),
+  deleteEnvelopeGroup: publicProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(({ input }) => {
+      const id: EnvelopeGroupId = envelopeGroupIdFromString(input.id);
+      const existing = getEnvelopeGroups().find((envelopeGroup) => envelopeGroup.id === id);
+      if (existing === undefined) {
+        throw new TRPCError({ code: "NOT_FOUND", message: `Envelope group "${id}" not found` });
+      }
+
+      const isReferenced = getSubEnvelopes().some((subEnvelope) => subEnvelope.groupId === id);
+      if (isReferenced) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Envelope group "${id}" is still in use and cannot be deleted`,
+        });
+      }
+
+      deleteEnvelopeGroup(id);
+      return { id };
     }),
 });

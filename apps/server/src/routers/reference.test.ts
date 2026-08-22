@@ -95,6 +95,7 @@ interface CreatedSubEnvelope {
   name: string;
   groupId: string;
   accountIds: string[];
+  isArchived: boolean;
 }
 
 describe("reference router", () => {
@@ -961,6 +962,180 @@ describe("reference.updateSubEnvelope — validation errors", () => {
     const allSubEnvelopes = await queryReference<CreatedSubEnvelope[]>(app, "subEnvelopes");
     const found = allSubEnvelopes.find((subEnvelope) => subEnvelope.id === created.id);
     expect(found?.name).toBe("Empty Name Update SubEnvelope");
+    await app.close();
+  });
+});
+
+// NOTE: reference.archiveSubEnvelope/unarchiveSubEnvelope tests below each
+// create a FRESH EnvelopeGroup/SubEnvelope via createEnvelopeGroup/
+// createSubEnvelope first, then archive/unarchive THAT record — never a
+// seeded one — per this file's existing createAccount/archiveAccount
+// precedent. The 500/INTERNAL_SERVER_ERROR-on-Spendable case necessarily
+// targets the seeded reserved "spendable" id (SPENDABLE_ENVELOPE_ID) itself,
+// since it's the only sub-envelope archiveSubEnvelope ever rejects — but
+// archiving it is expected to always fail (never actually persisted), so
+// this doesn't mutate shared state in a way that leaks into other tests.
+
+describe("reference.archiveSubEnvelope — success", () => {
+  it("sets isArchived to true, leaving id/name/groupId/accountIds unchanged, and persists it", async () => {
+    const app = buildServer();
+    const group = await mutateReference<CreatedEnvelopeGroup>(app, "createEnvelopeGroup", {
+      name: "Archive SubEnvelope Group",
+    });
+    const created = await mutateReference<CreatedSubEnvelope>(app, "createSubEnvelope", {
+      name: "Archive Me SubEnvelope",
+      groupId: group.id,
+      accountIds: ["account-checking"],
+    });
+
+    const archived = await mutateReference<CreatedSubEnvelope>(app, "archiveSubEnvelope", {
+      id: created.id,
+    });
+
+    expect(archived.id).toBe(created.id);
+    expect(archived.name).toBe(created.name);
+    expect(archived.groupId).toBe(created.groupId);
+    expect(archived.accountIds).toEqual(created.accountIds);
+    expect(archived.isArchived).toBe(true);
+
+    const allSubEnvelopes = await queryReference<CreatedSubEnvelope[]>(app, "subEnvelopes");
+    const found = allSubEnvelopes.find((subEnvelope) => subEnvelope.id === created.id);
+    expect(found).toEqual(archived);
+    await app.close();
+  });
+});
+
+describe("reference.unarchiveSubEnvelope — success", () => {
+  it("sets isArchived back to false on a previously-archived sub-envelope, leaving id/name/groupId/accountIds unchanged, and persists it", async () => {
+    const app = buildServer();
+    const group = await mutateReference<CreatedEnvelopeGroup>(app, "createEnvelopeGroup", {
+      name: "Archive Then Unarchive SubEnvelope Group",
+    });
+    const created = await mutateReference<CreatedSubEnvelope>(app, "createSubEnvelope", {
+      name: "Archive Then Unarchive Me SubEnvelope",
+      groupId: group.id,
+      accountIds: ["account-checking"],
+    });
+
+    const archived = await mutateReference<CreatedSubEnvelope>(app, "archiveSubEnvelope", {
+      id: created.id,
+    });
+    expect(archived.isArchived).toBe(true);
+
+    const unarchived = await mutateReference<CreatedSubEnvelope>(app, "unarchiveSubEnvelope", {
+      id: created.id,
+    });
+
+    expect(unarchived.id).toBe(created.id);
+    expect(unarchived.name).toBe(created.name);
+    expect(unarchived.groupId).toBe(created.groupId);
+    expect(unarchived.accountIds).toEqual(created.accountIds);
+    expect(unarchived.isArchived).toBe(false);
+
+    const allSubEnvelopes = await queryReference<CreatedSubEnvelope[]>(app, "subEnvelopes");
+    const found = allSubEnvelopes.find((subEnvelope) => subEnvelope.id === created.id);
+    expect(found).toEqual(unarchived);
+    await app.close();
+  });
+});
+
+describe("reference.archiveSubEnvelope/unarchiveSubEnvelope — validation errors", () => {
+  it("archiveSubEnvelope returns NOT_FOUND (404) for a well-formed but nonexistent id", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateReferenceExpectingError(app, "archiveSubEnvelope", {
+      id: "sub-envelope-does-not-exist",
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("unarchiveSubEnvelope returns NOT_FOUND (404) for a well-formed but nonexistent id", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateReferenceExpectingError(
+      app,
+      "unarchiveSubEnvelope",
+      { id: "sub-envelope-does-not-exist" },
+    );
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("archiveSubEnvelope returns a non-2xx (INTERNAL_SERVER_ERROR/500) for the reserved Spendable envelope id, and does not archive it", async () => {
+    const app = buildServer();
+    // archiveSubEnvelope (the shared domain function) throws a plain Error
+    // for the reserved SPENDABLE_ENVELOPE_ID — same unwrapped-propagation
+    // convention as createAccount/createSubEnvelope's factory-level
+    // failures, surfacing as 500, not 400.
+    const { statusCode, error } = await mutateReferenceExpectingError(app, "archiveSubEnvelope", {
+      id: "spendable",
+    });
+    expect(statusCode).toBe(500);
+    expect(error.data.code).toBe("INTERNAL_SERVER_ERROR");
+
+    const allSubEnvelopes = await queryReference<CreatedSubEnvelope[]>(app, "subEnvelopes");
+    const spendable = allSubEnvelopes.find((subEnvelope) => subEnvelope.id === "spendable");
+    expect(spendable?.isArchived).toBe(false);
+    await app.close();
+  });
+});
+
+// NOTE: reference.deleteEnvelopeGroup tests below rely on the seeded
+// "envelope-group-everyday" group (see store.ts) being referenced by the
+// seeded "sub-envelope-groceries-fund" sub-envelope — this is existing seed
+// data, not something these tests create, so the "in use" rejection test
+// targets it specifically rather than a freshly-created group, mirroring
+// reference.deleteCategory's "still in use" test above.
+
+describe("reference.deleteEnvelopeGroup — rejected (still in use)", () => {
+  it("returns BAD_REQUEST (400) for a group referenced by an existing sub-envelope, and does not remove it", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateReferenceExpectingError(
+      app,
+      "deleteEnvelopeGroup",
+      { id: "envelope-group-everyday" },
+    );
+    expect(statusCode).toBe(400);
+    expect(error.data.code).toBe("BAD_REQUEST");
+    expect(error.message).toBe(
+      'Envelope group "envelope-group-everyday" is still in use and cannot be deleted',
+    );
+
+    const allGroups = await queryReference<CreatedEnvelopeGroup[]>(app, "envelopeGroups");
+    expect(allGroups.some((group) => group.id === "envelope-group-everyday")).toBe(true);
+    await app.close();
+  });
+});
+
+describe("reference.deleteEnvelopeGroup — success", () => {
+  it("removes an unreferenced (freshly-created) group and returns its id", async () => {
+    const app = buildServer();
+    const created = await mutateReference<CreatedEnvelopeGroup>(app, "createEnvelopeGroup", {
+      name: "Unreferenced Envelope Group",
+    });
+
+    const result = await mutateReference<{ id: string }>(app, "deleteEnvelopeGroup", {
+      id: created.id,
+    });
+    expect(result).toEqual({ id: created.id });
+
+    const allGroups = await queryReference<CreatedEnvelopeGroup[]>(app, "envelopeGroups");
+    expect(allGroups.some((group) => group.id === created.id)).toBe(false);
+    await app.close();
+  });
+});
+
+describe("reference.deleteEnvelopeGroup — validation errors", () => {
+  it("returns NOT_FOUND (404) for a well-formed but nonexistent id", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateReferenceExpectingError(
+      app,
+      "deleteEnvelopeGroup",
+      { id: "envelope-group-does-not-exist" },
+    );
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
     await app.close();
   });
 });

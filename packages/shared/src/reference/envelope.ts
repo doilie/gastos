@@ -56,6 +56,7 @@ export interface SubEnvelope {
   readonly name: string;
   readonly groupId: EnvelopeGroupId | null;
   readonly accountIds: readonly AccountId[];
+  readonly isArchived: boolean;
 }
 
 /** The single reserved identifier for the always-present Spendable envelope. */
@@ -122,6 +123,7 @@ export function createSubEnvelope(input: {
     name: assertNonEmptyName(input.name, "createSubEnvelope"),
     groupId: input.groupId,
     accountIds: assertNonEmptyAccountIds(input.accountIds, "createSubEnvelope"),
+    isArchived: false,
   };
 }
 
@@ -175,10 +177,36 @@ export function createSpendableEnvelope(accountIds: readonly AccountId[]): SubEn
     name: SPENDABLE_ENVELOPE_NAME,
     groupId: null,
     accountIds: assertNonEmptyAccountIds(accountIds, "createSpendableEnvelope"),
+    isArchived: false,
   };
 }
 
 /** Returns whether `subEnvelope` is the reserved Spendable envelope. */
 export function isSpendableEnvelope(subEnvelope: SubEnvelope): boolean {
   return subEnvelope.id === SPENDABLE_ENVELOPE_ID;
+}
+
+/**
+ * Marks `subEnvelope` as archived (`isArchived: true`). This is the
+ * "delete" for a sub-envelope per repo convention: a hard delete would break
+ * referential integrity for historical `Transaction.subEnvelopeId` values,
+ * so archiving (hiding, not removing) is used instead — mirrors
+ * `archiveAccount`. Throws if `subEnvelope` is the reserved Spendable
+ * envelope — it can never be archived. Touches only `isArchived` — nothing
+ * else on `subEnvelope` changes.
+ */
+export function archiveSubEnvelope(subEnvelope: SubEnvelope): SubEnvelope {
+  if (subEnvelope.id === SPENDABLE_ENVELOPE_ID) {
+    throw new Error('archiveSubEnvelope: id "spendable" is reserved for the Spendable envelope');
+  }
+  return { ...subEnvelope, isArchived: true };
+}
+
+/**
+ * Reverses `archiveSubEnvelope` (`isArchived: false`), making an archived
+ * sub-envelope active again. Touches only `isArchived` — nothing else on
+ * `subEnvelope` changes.
+ */
+export function unarchiveSubEnvelope(subEnvelope: SubEnvelope): SubEnvelope {
+  return { ...subEnvelope, isArchived: false };
 }

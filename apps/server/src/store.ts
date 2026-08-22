@@ -27,6 +27,7 @@ import {
   creditCardIdFromString,
   currencyCodeFromString,
   type EnvelopeGroup,
+  type EnvelopeGroupId,
   envelopeGroupIdFromString,
   fundingSourceFromAccount,
   fundingSourceFromEnvelope,
@@ -285,6 +286,18 @@ export function addEnvelopeGroup(envelopeGroup: EnvelopeGroup): void {
 export function replaceEnvelopeGroup(envelopeGroup: EnvelopeGroup): void {
   const index = envelopeGroups.findIndex((existing) => existing.id === envelopeGroup.id);
   envelopeGroups[index] = envelopeGroup;
+}
+
+/**
+ * Removes the envelope group with the given `id` from the in-memory store.
+ * Trusts the caller (the router) already validated it's safe to delete
+ * (e.g. no sub-envelope still references it) — no such check here,
+ * mirroring `deleteCategory`'s "store just does the mechanical operation"
+ * split.
+ */
+export function deleteEnvelopeGroup(id: EnvelopeGroupId): void {
+  const index = envelopeGroups.findIndex((existing) => existing.id === id);
+  envelopeGroups.splice(index, 1);
 }
 
 /** Appends `subEnvelope` to the in-memory store. */

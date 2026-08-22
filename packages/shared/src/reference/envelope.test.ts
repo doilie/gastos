@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { accountIdFromString } from "./account";
 import {
+  archiveSubEnvelope,
   createEnvelopeGroup,
   createSpendableEnvelope,
   createSubEnvelope,
@@ -11,6 +12,7 @@ import {
   SPENDABLE_ENVELOPE_ID,
   SPENDABLE_ENVELOPE_NAME,
   subEnvelopeIdFromString,
+  unarchiveSubEnvelope,
   updateEnvelopeGroup,
   updateSubEnvelope,
 } from "./envelope";
@@ -132,6 +134,7 @@ describe("createSubEnvelope", () => {
       name: "Groceries",
       groupId,
       accountIds: [acc1],
+      isArchived: false,
     });
   });
 
@@ -256,6 +259,7 @@ describe("createSpendableEnvelope", () => {
       name: SPENDABLE_ENVELOPE_NAME,
       groupId: null,
       accountIds: [acc1, acc2],
+      isArchived: false,
     });
   });
 
@@ -283,5 +287,70 @@ describe("isSpendableEnvelope", () => {
       accountIds: [acc1],
     });
     expect(isSpendableEnvelope(subEnvelope)).toBe(false);
+  });
+});
+
+describe("archiveSubEnvelope", () => {
+  const id = subEnvelopeIdFromString("sub-1");
+  const groupId = envelopeGroupIdFromString("grp-1");
+  const acc1 = accountIdFromString("acc-1");
+  const subEnvelope = createSubEnvelope({ id, name: "Groceries", groupId, accountIds: [acc1] });
+
+  it("sets isArchived to true, leaving id/name/groupId/accountIds unchanged", () => {
+    const archived = archiveSubEnvelope(subEnvelope);
+    expect(archived).toEqual({
+      id,
+      name: "Groceries",
+      groupId,
+      accountIds: [acc1],
+      isArchived: true,
+    });
+  });
+
+  it("is idempotent — archiving an already-archived sub-envelope stays isArchived: true", () => {
+    const archived = archiveSubEnvelope(subEnvelope);
+    const archivedAgain = archiveSubEnvelope(archived);
+    expect(archivedAgain).toEqual(archived);
+  });
+
+  it("throws when called on the reserved Spendable envelope", () => {
+    const spendable = createSpendableEnvelope([acc1]);
+    expect(() => archiveSubEnvelope(spendable)).toThrow(
+      'archiveSubEnvelope: id "spendable" is reserved for the Spendable envelope',
+    );
+  });
+});
+
+describe("unarchiveSubEnvelope", () => {
+  const id = subEnvelopeIdFromString("sub-1");
+  const groupId = envelopeGroupIdFromString("grp-1");
+  const acc1 = accountIdFromString("acc-1");
+  const subEnvelope = createSubEnvelope({ id, name: "Groceries", groupId, accountIds: [acc1] });
+  const archivedSubEnvelope = archiveSubEnvelope(subEnvelope);
+
+  it("sets isArchived to false, leaving id/name/groupId/accountIds unchanged", () => {
+    const unarchived = unarchiveSubEnvelope(archivedSubEnvelope);
+    expect(unarchived).toEqual({
+      id,
+      name: "Groceries",
+      groupId,
+      accountIds: [acc1],
+      isArchived: false,
+    });
+  });
+
+  it("is idempotent — unarchiving an already-unarchived sub-envelope stays isArchived: false", () => {
+    const unarchived = unarchiveSubEnvelope(subEnvelope);
+    const unarchivedAgain = unarchiveSubEnvelope(unarchived);
+    expect(unarchivedAgain).toEqual(unarchived);
+  });
+
+  it("does not throw when called on the reserved Spendable envelope, and no-ops to isArchived: false", () => {
+    const spendable = createSpendableEnvelope([acc1]);
+    let unarchived: ReturnType<typeof unarchiveSubEnvelope> | undefined;
+    expect(() => {
+      unarchived = unarchiveSubEnvelope(spendable);
+    }).not.toThrow();
+    expect(unarchived).toEqual({ ...spendable, isArchived: false });
   });
 });
