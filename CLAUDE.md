@@ -301,6 +301,17 @@ previously make), tapping toggles membership in a local selected set (marked wit
 unlike `budget.tsx`'s single-select `AccountPicker` which closes on pick. Update and
 Archive/Delete for envelopes remain separate, later, not-yet-scoped increments.
 
+Increment 39 adds the server side of Update for envelopes: `updateEnvelopeGroup`/
+`updateSubEnvelope` (`packages/shared/src/reference/envelope.ts`) mirror `updateAccount`/
+`updateCategory` — partial `name` update for `EnvelopeGroup`, partial `name`/`accountIds` update
+for `SubEnvelope`. Neither `id` nor (for `SubEnvelope`) `groupId` is ever touched — moving a
+sub-envelope to a different group is a separate, later increment. `reference.updateEnvelopeGroup`/
+`updateSubEnvelope` tRPC mutations wrap them with the same `NOT_FOUND`/unwrapped-`Error`
+conventions used throughout `reference.ts`. `apps/server/src/store.ts` gained
+`replaceEnvelopeGroup`/`replaceSubEnvelope`. Live-verified via curl. No UI wiring yet — Archive/
+Delete for envelopes is the remaining piece of this thread's server side, and edit controls in the
+Envelopes tab are the remaining UI piece.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
