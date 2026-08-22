@@ -194,6 +194,15 @@ is typically negative; no flip to an absolute "amount spent" figure). No server 
 wiring yet — mirrors how the Budget thread started with pure domain logic before any server/UI
 work.
 
+Increment 29 exposes that report via a new read-only `reporting` tRPC router
+(`apps/server/src/routers/reporting.ts`) — `reporting.categorySpending` takes Zod-validated
+`{year, month}` and calls `buildCategorySpendingReport` against the store's transactions and
+categories. An out-of-range or nonexistent year/month is not an error, it just yields an empty
+report (mirroring `deriveAccountBalance`/`deriveSubEnvelopeBalance`'s zero-for-no-match behavior);
+only Zod schema violations (e.g. `month` outside 1-12) return `BAD_REQUEST`. Live-verified via curl
+against the seeded 2026-08 data before handoff. The Reports tab UI is the remaining piece of this
+thread.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
