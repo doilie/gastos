@@ -338,6 +338,18 @@ when any `SubEnvelope` still has a matching `groupId`, otherwise removes it via 
 function. No UI wiring yet — Archive/Delete controls in the Envelopes tab are the last remaining
 piece of the Envelope CRUD thread.
 
+Increment 42 wires that UI, completing the "Envelope CRUD" thread end-to-end: `SubEnvelopeRow` gets
+an Archive/Unarchive toggle plus an `" (archived)"` name suffix, mirroring `more.tsx`'s
+`AccountRow` archive pattern exactly (archived sub-envelopes stay visible in the list, not
+filtered). `EnvelopeGroupSection`'s heading gets a Delete control with an inline "Delete this
+group?" confirmation, mirroring `more.tsx`'s `CategoryRow` delete pattern exactly — including
+surfacing the mutation's specific server error message (e.g. "still in use") over a generic
+fallback, the same deliberate exception `CategoryDeleteConfirm` already established. The reserved
+Spendable envelope never reaches this screen's `SubEnvelopeRow` (already filtered out by
+`groupId !== null`), so no UI-side special-casing was needed for its archive rejection. This is
+the last piece of the "Envelope CRUD" thread (`req/what-i-want.txt`'s "envelope crud"/"sub-envelope
+crud").
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
