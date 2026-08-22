@@ -5,13 +5,14 @@ import { referenceRouter } from "./routers/reference";
 import { ledgerRouter } from "./routers/ledger";
 import { cardsRouter } from "./routers/cards";
 import { budgetRouter } from "./routers/budget";
+import { reportingRouter } from "./routers/reporting";
 
 /**
  * Root tRPC router. A health check procedure plus the read-only Reference
  * layer (`reference.*`), Ledger Core layer (`ledger.*`), Credit Card queries
- * (`cards.*`), and Budget queries (`budget.*`). Still no database connection
- * — an in-memory seed store (`./store`) stands in for now — and no mutation
- * procedures for Budget yet.
+ * (`cards.*`), Budget queries (`budget.*`), and Reporting queries
+ * (`reporting.*`). Still no database connection — an in-memory seed store
+ * (`./store`) stands in for now.
  */
 export const appRouter = router({
   health: publicProcedure.query(() => ({
@@ -22,6 +23,7 @@ export const appRouter = router({
   ledger: ledgerRouter,
   cards: cardsRouter,
   budget: budgetRouter,
+  reporting: reportingRouter,
 });
 
 export type AppRouter = typeof appRouter;
