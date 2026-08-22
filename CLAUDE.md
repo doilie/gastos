@@ -227,6 +227,16 @@ errors (a malformed currency code, an empty name) propagate unwrapped as plain `
 shape-validation failures return `BAD_REQUEST`). No UI wiring yet — the More tab's "+ Add" forms
 are the next piece of this thread.
 
+Increment 32 wires that UI: the More tab (`apps/mobile/app/(tabs)/more.tsx`) now has inline "+ Add
+account" and "+ Add category" forms below each section's list, calling
+`reference.createAccount`/`createCategory` and mirroring `QuickAddForm`'s collapsed-button-to-
+inline-controls pattern. Currency is auto-uppercased as the user types and locally validated to
+exactly 3 letters before Save enables (client-side shape check, ahead of the server's own
+`currencyCodeFromString` validation). The income/expense toggle is a plain `Pressable` flipping a
+local boolean (not React Native's `Switch` — nothing else in this codebase uses it). This completes
+the Create half of the "More tab CRUD" thread; Update and Archive/Delete remain separate, later,
+not-yet-scoped increments.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
