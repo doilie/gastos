@@ -18,6 +18,12 @@ jest.mock("../../lib/trpc", () => ({
       createSubEnvelope: {
         useMutation: jest.fn(),
       },
+      updateEnvelopeGroup: {
+        useMutation: jest.fn(),
+      },
+      updateSubEnvelope: {
+        useMutation: jest.fn(),
+      },
     },
     useQueries: jest.fn(),
     useUtils: jest.fn(),
@@ -84,6 +90,10 @@ const mockCreateEnvelopeGroupUseMutation = trpc.reference.createEnvelopeGroup
   .useMutation as unknown as jest.Mock<MockMutationResult>;
 const mockCreateSubEnvelopeUseMutation = trpc.reference.createSubEnvelope
   .useMutation as unknown as jest.Mock<MockMutationResult>;
+const mockUpdateEnvelopeGroupUseMutation = trpc.reference.updateEnvelopeGroup
+  .useMutation as unknown as jest.Mock<MockMutationResult>;
+const mockUpdateSubEnvelopeUseMutation = trpc.reference.updateSubEnvelope
+  .useMutation as unknown as jest.Mock<MockMutationResult>;
 
 const mockUseUtils = trpc.useUtils as unknown as jest.Mock<{
   reference: {
@@ -127,6 +137,8 @@ beforeEach(() => {
   mockAccountsUseQuery.mockReturnValue(success([]));
   mockCreateEnvelopeGroupUseMutation.mockReturnValue(mockMutationResult());
   mockCreateSubEnvelopeUseMutation.mockReturnValue(mockMutationResult());
+  mockUpdateEnvelopeGroupUseMutation.mockReturnValue(mockMutationResult());
+  mockUpdateSubEnvelopeUseMutation.mockReturnValue(mockMutationResult());
   mockUseUtils.mockReturnValue({
     reference: {
       envelopeGroups: { invalidate: jest.fn() },
@@ -141,6 +153,8 @@ afterEach(() => {
   mockAccountsUseQuery.mockReset();
   mockCreateEnvelopeGroupUseMutation.mockReset();
   mockCreateSubEnvelopeUseMutation.mockReset();
+  mockUpdateEnvelopeGroupUseMutation.mockReset();
+  mockUpdateSubEnvelopeUseMutation.mockReset();
   mockUseUtils.mockReset();
   mockUseQueries.mockReset();
 });
@@ -493,6 +507,238 @@ describe("AddSubEnvelopeForm mutation error state", () => {
 
     const { getByText } = await render(<EnvelopesScreen />);
     await fireEvent.press(getByText("+ Add sub-envelope"));
+
+    expect(getByText("Couldn't save — try again.")).toBeTruthy();
+  });
+});
+
+// --- EnvelopeGroupSection / SubEnvelopeRow "Edit" controls --------------
+
+/** Returns `value`, or throws if it's `undefined` — avoids a non-null assertion when indexing `getAllByText` results. */
+function requireDefined<T>(value: T | undefined): T {
+  if (value === undefined) {
+    throw new Error("expected value to be defined");
+  }
+  return value;
+}
+
+describe("EnvelopeGroupSection heading edit collapsed state", () => {
+  it("does not show the edit input before Edit is tapped", async () => {
+    mockOneEmptyGroupWithAccounts([]);
+
+    const { getByText, queryByPlaceholderText, queryByText } = await render(
+      <EnvelopesScreen />,
+    );
+
+    expect(getByText("Travel")).toBeTruthy();
+    expect(getByText("Edit")).toBeTruthy();
+    expect(queryByPlaceholderText("Name")).toBeNull();
+    expect(queryByText("Cancel")).toBeNull();
+    expect(queryByText("Save")).toBeNull();
+  });
+
+  it("reveals a pre-filled name input and Cancel/Save on tap", async () => {
+    mockOneEmptyGroupWithAccounts([]);
+
+    const { getByText, getByPlaceholderText } = await render(<EnvelopesScreen />);
+    await fireEvent.press(getByText("Edit"));
+
+    expect(getByPlaceholderText("Name")["props"]["value"]).toBe("Travel");
+    expect(getByText("Cancel")).toBeTruthy();
+    expect(getByText("Save")).toBeTruthy();
+  });
+});
+
+describe("EnvelopeGroupSection heading edit save validation", () => {
+  it("disables Save when the name is empty or whitespace-only", async () => {
+    mockOneEmptyGroupWithAccounts([]);
+
+    const { getByText, getByPlaceholderText } = await render(<EnvelopesScreen />);
+    await fireEvent.press(getByText("Edit"));
+
+    await fireEvent.changeText(getByPlaceholderText("Name"), "   ");
+    expect(getByText("Save")).toBeDisabled();
+
+    await fireEvent.changeText(getByPlaceholderText("Name"), "");
+    expect(getByText("Save")).toBeDisabled();
+
+    await fireEvent.changeText(getByPlaceholderText("Name"), "Trips");
+    expect(getByText("Save")).toBeEnabled();
+  });
+});
+
+describe("EnvelopeGroupSection heading edit submission", () => {
+  it("calls updateEnvelopeGroup.mutate with the trimmed name on Save", async () => {
+    const mutate = jest.fn();
+    mockUpdateEnvelopeGroupUseMutation.mockReturnValue(mockMutationResult({ mutate }));
+    mockOneEmptyGroupWithAccounts([]);
+
+    const { getByText, getByPlaceholderText } = await render(<EnvelopesScreen />);
+    await fireEvent.press(getByText("Edit"));
+    await fireEvent.changeText(getByPlaceholderText("Name"), "  Trips  ");
+    await fireEvent.press(getByText("Save"));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate).toHaveBeenCalledWith({ id: travelGroup.id, name: "Trips" });
+  });
+});
+
+describe("EnvelopeGroupSection heading edit cancel", () => {
+  it("reverts to the original name and exits edit mode, without calling mutate", async () => {
+    const mutate = jest.fn();
+    mockUpdateEnvelopeGroupUseMutation.mockReturnValue(mockMutationResult({ mutate }));
+    mockOneEmptyGroupWithAccounts([]);
+
+    const { getByText, getByPlaceholderText, queryByPlaceholderText } = await render(
+      <EnvelopesScreen />,
+    );
+    await fireEvent.press(getByText("Edit"));
+    await fireEvent.changeText(getByPlaceholderText("Name"), "Something else");
+    await fireEvent.press(getByText("Cancel"));
+
+    expect(mutate).not.toHaveBeenCalled();
+    expect(getByText("Travel")).toBeTruthy();
+    expect(queryByPlaceholderText("Name")).toBeNull();
+  });
+});
+
+describe("EnvelopeGroupSection heading edit mutation error state", () => {
+  it("shows the inline error message when the mutation errors", async () => {
+    mockUpdateEnvelopeGroupUseMutation.mockReturnValue(
+      mockMutationResult({ isError: true }),
+    );
+    mockOneEmptyGroupWithAccounts([]);
+
+    const { getByText } = await render(<EnvelopesScreen />);
+    await fireEvent.press(getByText("Edit"));
+
+    expect(getByText("Couldn't save — try again.")).toBeTruthy();
+  });
+});
+
+const editableSubEnvelope: MockSubEnvelope = {
+  id: "sub-20",
+  name: "Rent Fund",
+  groupId: everydayGroup.id,
+  accountIds: [walletAccount.id],
+};
+const editableSubEnvelopeBalance = centsFromInt(12000);
+
+/**
+ * Wires the list queries to one group (`everydayGroup`) with exactly one
+ * sub-envelope (`editableSubEnvelope`, linked to `walletAccount` only) plus
+ * two accounts (`walletAccount`/`savingsAccount`) — scoped so a
+ * `SubEnvelopeRow` edit test only ever sees one row, keeping its "Edit"
+ * button distinguishable from the group heading's via DOM order (heading
+ * renders first).
+ */
+function mockOneGroupWithOneEditableSubEnvelope(): void {
+  mockEnvelopeGroupsUseQuery.mockReturnValue(success([everydayGroup]));
+  mockSubEnvelopesUseQuery.mockReturnValue(success([editableSubEnvelope]));
+  mockAccountsUseQuery.mockReturnValue(success([walletAccount, savingsAccount]));
+  mockUseQueries.mockReturnValue([success(editableSubEnvelopeBalance)]);
+}
+
+describe("SubEnvelopeRow edit collapsed state", () => {
+  it("does not show edit inputs before Edit is tapped, showing name and balance instead", async () => {
+    mockOneGroupWithOneEditableSubEnvelope();
+
+    const { getByText, queryByPlaceholderText } = await render(<EnvelopesScreen />);
+
+    expect(getByText("Rent Fund")).toBeTruthy();
+    expect(getByText(formatCents(editableSubEnvelopeBalance))).toBeTruthy();
+    expect(queryByPlaceholderText("Name")).toBeNull();
+  });
+
+  it("reveals a pre-filled name input and account multi-select with the current account pre-selected, on tap", async () => {
+    mockOneGroupWithOneEditableSubEnvelope();
+
+    const { getAllByText, getByText, getByPlaceholderText, queryByText } = await render(
+      <EnvelopesScreen />,
+    );
+    await fireEvent.press(requireDefined(getAllByText("Edit")[1]));
+
+    expect(getByPlaceholderText("Name")["props"]["value"]).toBe("Rent Fund");
+    expect(getByText("✓ Wallet")).toBeTruthy();
+    expect(getByText("Savings Account")).toBeTruthy();
+    expect(queryByText("✓ Savings Account")).toBeNull();
+  });
+});
+
+describe("SubEnvelopeRow edit save validation", () => {
+  it("disables Save when the name is empty, and when all accounts are deselected", async () => {
+    mockOneGroupWithOneEditableSubEnvelope();
+
+    const { getAllByText, getByText, getByPlaceholderText } = await render(
+      <EnvelopesScreen />,
+    );
+    await fireEvent.press(requireDefined(getAllByText("Edit")[1]));
+
+    // Name emptied, account still selected.
+    await fireEvent.changeText(getByPlaceholderText("Name"), "");
+    expect(getByText("Save")).toBeDisabled();
+
+    // Name restored, but the only selected account is deselected.
+    await fireEvent.changeText(getByPlaceholderText("Name"), "Rent Fund");
+    await fireEvent.press(getByText("✓ Wallet"));
+    expect(getByText("Save")).toBeDisabled();
+  });
+});
+
+describe("SubEnvelopeRow edit submission", () => {
+  it("calls updateSubEnvelope.mutate with the trimmed name and the newly selected accounts on Save", async () => {
+    const mutate = jest.fn();
+    mockUpdateSubEnvelopeUseMutation.mockReturnValue(mockMutationResult({ mutate }));
+    mockOneGroupWithOneEditableSubEnvelope();
+
+    const { getAllByText, getByText, getByPlaceholderText } = await render(
+      <EnvelopesScreen />,
+    );
+    await fireEvent.press(requireDefined(getAllByText("Edit")[1]));
+    await fireEvent.changeText(getByPlaceholderText("Name"), "  Housing Fund  ");
+    await fireEvent.press(getByText("✓ Wallet"));
+    await fireEvent.press(getByText("Savings Account"));
+    await fireEvent.press(getByText("Save"));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate).toHaveBeenCalledWith({
+      id: editableSubEnvelope.id,
+      name: "Housing Fund",
+      accountIds: [savingsAccount.id],
+    });
+  });
+});
+
+describe("SubEnvelopeRow edit cancel", () => {
+  it("reverts the name and account selection to the original values, without calling mutate", async () => {
+    const mutate = jest.fn();
+    mockUpdateSubEnvelopeUseMutation.mockReturnValue(mockMutationResult({ mutate }));
+    mockOneGroupWithOneEditableSubEnvelope();
+
+    const { getAllByText, getByText, getByPlaceholderText, queryByPlaceholderText } =
+      await render(<EnvelopesScreen />);
+    await fireEvent.press(requireDefined(getAllByText("Edit")[1]));
+    await fireEvent.changeText(getByPlaceholderText("Name"), "Something else");
+    await fireEvent.press(getByText("✓ Wallet"));
+    await fireEvent.press(getByText("Savings Account"));
+    await fireEvent.press(getByText("Cancel"));
+
+    expect(mutate).not.toHaveBeenCalled();
+    expect(getByText("Rent Fund")).toBeTruthy();
+    expect(getByText(formatCents(editableSubEnvelopeBalance))).toBeTruthy();
+    expect(queryByPlaceholderText("Name")).toBeNull();
+  });
+});
+
+describe("SubEnvelopeRow edit mutation error state", () => {
+  it("shows the inline error message when the mutation errors", async () => {
+    mockUpdateSubEnvelopeUseMutation.mockReturnValue(
+      mockMutationResult({ isError: true }),
+    );
+    mockOneGroupWithOneEditableSubEnvelope();
+
+    const { getAllByText, getByText } = await render(<EnvelopesScreen />);
+    await fireEvent.press(requireDefined(getAllByText("Edit")[1]));
 
     expect(getByText("Couldn't save — try again.")).toBeTruthy();
   });

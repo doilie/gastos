@@ -76,6 +76,41 @@ export default function EnvelopesScreen() {
   );
 }
 
+/**
+ * `EnvelopeGroupSection`'s heading name-edit state and `updateEnvelopeGroup`
+ * mutation — split into its own hook so the section component itself stays
+ * under the line/complexity caps.
+ */
+function useEnvelopeGroupEdit(group: EnvelopeGroup) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [name, setName] = useState(group.name);
+  const utils = trpc.useUtils();
+  const updateEnvelopeGroup = trpc.reference.updateEnvelopeGroup.useMutation({
+    onSuccess: () => {
+      void utils.reference.envelopeGroups.invalidate();
+      setIsEditing(false);
+    },
+  });
+
+  function startEdit() {
+    setName(group.name);
+    updateEnvelopeGroup.reset();
+    setIsEditing(true);
+  }
+
+  function cancelEdit() {
+    setName(group.name);
+    updateEnvelopeGroup.reset();
+    setIsEditing(false);
+  }
+
+  function handleSave() {
+    updateEnvelopeGroup.mutate({ id: group.id, name: name.trim() });
+  }
+
+  return { isEditing, name, setName, updateEnvelopeGroup, startEdit, cancelEdit, handleSave };
+}
+
 /** Renders one `EnvelopeGroup` heading plus a row per sub-envelope in it, plus its "+ Add sub-envelope" form. */
 function EnvelopeGroupSection({
   group,
@@ -88,14 +123,33 @@ function EnvelopeGroupSection({
   balancesById: BalancesById;
   accounts: readonly Account[];
 }) {
+  const edit = useEnvelopeGroupEdit(group);
   return (
     <View style={styles.section}>
-      <Text style={styles.groupName}>{group.name}</Text>
+      {edit.isEditing ? (
+        <EnvelopeGroupEditFields
+          name={edit.name}
+          canSave={edit.name.trim().length > 0}
+          isPending={edit.updateEnvelopeGroup.isPending}
+          isError={edit.updateEnvelopeGroup.isError}
+          onNameChange={edit.setName}
+          onCancel={edit.cancelEdit}
+          onSave={edit.handleSave}
+        />
+      ) : (
+        <View style={styles.groupHeading}>
+          <Text style={styles.groupName}>{group.name}</Text>
+          <Pressable style={styles.editButton} onPress={edit.startEdit}>
+            <Text style={styles.editButtonText}>Edit</Text>
+          </Pressable>
+        </View>
+      )}
       {subEnvelopes.map((subEnvelope) => (
         <SubEnvelopeRow
           key={subEnvelope.id}
           subEnvelope={subEnvelope}
           balanceQuery={balancesById.get(subEnvelope.id)}
+          accounts={accounts}
         />
       ))}
       <AddSubEnvelopeForm groupId={group.id} accounts={accounts} />
@@ -103,14 +157,141 @@ function EnvelopeGroupSection({
   );
 }
 
-/** Renders one sub-envelope's name + its balance, "…" while still loading. */
+/** The revealed group-heading edit inputs/controls — split out to keep `EnvelopeGroupSection` under the line/complexity caps. */
+function EnvelopeGroupEditFields(props: {
+  name: string;
+  canSave: boolean;
+  isPending: boolean;
+  isError: boolean;
+  onNameChange: (value: string) => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  const disabled = props.isPending;
+  return (
+    <View style={styles.form}>
+      <TextInput
+        style={styles.input}
+        placeholder="Name"
+        value={props.name}
+        editable={!disabled}
+        onChangeText={props.onNameChange}
+      />
+      {props.isError && <Text style={styles.error}>Couldn&apos;t save — try again.</Text>}
+      <View style={styles.formButtons}>
+        <Pressable style={styles.formButton} disabled={disabled} onPress={props.onCancel}>
+          <Text>Cancel</Text>
+        </Pressable>
+        <Pressable
+          style={styles.formButton}
+          disabled={disabled || !props.canSave}
+          onPress={props.onSave}
+        >
+          <Text>{props.isPending ? "Saving…" : "Save"}</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * `SubEnvelopeRow`'s name/account-membership edit state and
+ * `updateSubEnvelope` mutation — split into its own hook so the row component
+ * itself stays under the line/complexity caps.
+ */
+function useSubEnvelopeEdit(subEnvelope: SubEnvelope) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [name, setName] = useState(subEnvelope.name);
+  const [selectedAccountIds, setSelectedAccountIds] = useState<ReadonlySet<AccountId>>(
+    new Set(subEnvelope.accountIds),
+  );
+  const utils = trpc.useUtils();
+  const updateSubEnvelope = trpc.reference.updateSubEnvelope.useMutation({
+    onSuccess: () => {
+      void utils.reference.subEnvelopes.invalidate();
+      setIsEditing(false);
+    },
+  });
+
+  function startEdit() {
+    setName(subEnvelope.name);
+    setSelectedAccountIds(new Set(subEnvelope.accountIds));
+    updateSubEnvelope.reset();
+    setIsEditing(true);
+  }
+
+  function cancelEdit() {
+    setName(subEnvelope.name);
+    setSelectedAccountIds(new Set(subEnvelope.accountIds));
+    updateSubEnvelope.reset();
+    setIsEditing(false);
+  }
+
+  function toggleAccount(accountId: AccountId) {
+    const next = new Set(selectedAccountIds);
+    if (next.has(accountId)) {
+      next.delete(accountId);
+    } else {
+      next.add(accountId);
+    }
+    setSelectedAccountIds(next);
+  }
+
+  function handleSave() {
+    updateSubEnvelope.mutate({
+      id: subEnvelope.id,
+      name: name.trim(),
+      accountIds: [...selectedAccountIds],
+    });
+  }
+
+  return {
+    isEditing,
+    name,
+    setName,
+    selectedAccountIds,
+    updateSubEnvelope,
+    startEdit,
+    cancelEdit,
+    toggleAccount,
+    handleSave,
+  };
+}
+
+/**
+ * Renders one sub-envelope's name + its balance, "…" while still loading,
+ * plus an "Edit" control that swaps in pre-filled `SubEnvelopeEditFields`
+ * (name + account multi-select) instead of the balance display, mirroring
+ * `more.tsx`'s `AccountRow` display/edit swap.
+ */
 function SubEnvelopeRow({
   subEnvelope,
   balanceQuery,
+  accounts,
 }: {
   subEnvelope: SubEnvelope;
   balanceQuery: BalanceQuery | undefined;
+  accounts: readonly Account[];
 }) {
+  const edit = useSubEnvelopeEdit(subEnvelope);
+
+  if (edit.isEditing) {
+    return (
+      <SubEnvelopeEditFields
+        name={edit.name}
+        accounts={accounts}
+        selectedAccountIds={edit.selectedAccountIds}
+        canSave={edit.name.trim().length > 0 && edit.selectedAccountIds.size > 0}
+        isPending={edit.updateSubEnvelope.isPending}
+        isError={edit.updateSubEnvelope.isError}
+        onNameChange={edit.setName}
+        onToggleAccount={edit.toggleAccount}
+        onCancel={edit.cancelEdit}
+        onSave={edit.handleSave}
+      />
+    );
+  }
+
   const balanceText =
     balanceQuery === undefined || balanceQuery.isPending
       ? "…"
@@ -120,7 +301,58 @@ function SubEnvelopeRow({
   return (
     <View style={styles.row}>
       <Text style={styles.subEnvelopeName}>{subEnvelope.name}</Text>
-      <Text style={styles.subEnvelopeBalance}>{balanceText}</Text>
+      <View style={styles.rowButtons}>
+        <Text style={styles.subEnvelopeBalance}>{balanceText}</Text>
+        <Pressable style={styles.editButton} onPress={edit.startEdit}>
+          <Text style={styles.editButtonText}>Edit</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+/** The revealed `SubEnvelopeRow`'s edit inputs/controls — split out to keep the parent under the line/complexity caps. */
+function SubEnvelopeEditFields(props: {
+  name: string;
+  accounts: readonly Account[];
+  selectedAccountIds: ReadonlySet<AccountId>;
+  canSave: boolean;
+  isPending: boolean;
+  isError: boolean;
+  onNameChange: (value: string) => void;
+  onToggleAccount: (accountId: AccountId) => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  const disabled = props.isPending;
+  return (
+    <View style={styles.form}>
+      <TextInput
+        style={styles.input}
+        placeholder="Name"
+        value={props.name}
+        editable={!disabled}
+        onChangeText={props.onNameChange}
+      />
+      <AccountMultiSelect
+        accounts={props.accounts}
+        selectedAccountIds={props.selectedAccountIds}
+        disabled={disabled}
+        onToggleAccount={props.onToggleAccount}
+      />
+      {props.isError && <Text style={styles.error}>Couldn&apos;t save — try again.</Text>}
+      <View style={styles.formButtons}>
+        <Pressable style={styles.formButton} disabled={disabled} onPress={props.onCancel}>
+          <Text>Cancel</Text>
+        </Pressable>
+        <Pressable
+          style={styles.formButton}
+          disabled={disabled || !props.canSave}
+          onPress={props.onSave}
+        >
+          <Text>{props.isPending ? "Saving…" : "Save"}</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -406,14 +638,20 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: 20,
   },
+  groupHeading: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
   groupName: {
     fontSize: 18,
     fontWeight: "700",
-    marginBottom: 8,
   },
   row: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "center",
     paddingVertical: 6,
     paddingLeft: 12,
   },
@@ -424,6 +662,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
+  rowButtons: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
   addButton: {
     marginTop: 8,
     paddingVertical: 8,
@@ -431,6 +673,14 @@ const styles = StyleSheet.create({
   },
   addButtonText: {
     fontSize: 16,
+    fontWeight: "600",
+  },
+  editButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  editButtonText: {
+    fontSize: 14,
     fontWeight: "600",
   },
   form: {
