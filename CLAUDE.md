@@ -280,6 +280,18 @@ always showing a generic error like every other form in this app does — a deli
 since this rejection reason is specific and user-actionable. This is the last piece of the "More
 tab CRUD" thread (`req/what-i-want.txt`'s "account crud"/"category crud").
 
+Increment 37 begins the "Envelope CRUD" thread (`req/what-i-want.txt`: "envelope crud",
+"sub-envelope crud"), following the same phased pattern as the completed "More tab CRUD" thread —
+Create first. `reference.createEnvelopeGroup`/`createSubEnvelope` tRPC mutations wrap the
+`EnvelopeGroup`/`SubEnvelope` factories already in `packages/shared/src/reference/envelope.ts`
+(no new shared domain logic needed this time — those factories already existed and already
+validate name/`accountIds`). `createSubEnvelope` validates `groupId` and every `accountIds` entry
+resolve to a real `EnvelopeGroup`/`Account` (`NOT_FOUND` otherwise) before calling the factory,
+which does its own non-empty-name/no-duplicate-`accountIds`/reserved-Spendable-id checks
+(propagating unwrapped as 500, same convention as `createAccount`/`createCategory`). Update and
+Archive/Delete for envelopes are separate, later, not-yet-scoped increments — same sequencing as
+Account/Category followed. No UI wiring yet. Live-verified via curl.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
