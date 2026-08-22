@@ -78,7 +78,7 @@ const everydayGroup: EnvelopeGroup = createEnvelopeGroup({
   name: "Everyday",
 });
 
-const envelopeGroups: readonly EnvelopeGroup[] = [everydayGroup];
+const envelopeGroups: EnvelopeGroup[] = [everydayGroup];
 
 const groceriesFundEnvelope: SubEnvelope = createSubEnvelope({
   id: subEnvelopeIdFromString("sub-envelope-groceries-fund"),
@@ -89,7 +89,7 @@ const groceriesFundEnvelope: SubEnvelope = createSubEnvelope({
 
 const spendableEnvelope: SubEnvelope = createSpendableEnvelope([checkingAccount.id]);
 
-const subEnvelopes: readonly SubEnvelope[] = [spendableEnvelope, groceriesFundEnvelope];
+const subEnvelopes: SubEnvelope[] = [spendableEnvelope, groceriesFundEnvelope];
 
 const transactions: Transaction[] = [
   createTransaction({
@@ -269,6 +269,16 @@ export function getEnvelopeGroups(): readonly EnvelopeGroup[] {
 /** Returns the seeded sub-envelopes (including the reserved Spendable envelope). */
 export function getSubEnvelopes(): readonly SubEnvelope[] {
   return subEnvelopes;
+}
+
+/** Appends `envelopeGroup` to the in-memory store. */
+export function addEnvelopeGroup(envelopeGroup: EnvelopeGroup): void {
+  envelopeGroups.push(envelopeGroup);
+}
+
+/** Appends `subEnvelope` to the in-memory store. */
+export function addSubEnvelope(subEnvelope: SubEnvelope): void {
+  subEnvelopes.push(subEnvelope);
 }
 
 /** Returns the seeded transactions. */

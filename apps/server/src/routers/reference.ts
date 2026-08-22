@@ -8,7 +8,14 @@ import {
   categoryIdFromString,
   createAccount,
   createCategory,
+  createEnvelopeGroup,
+  createSubEnvelope,
   currencyCodeFromString,
+  type EnvelopeGroup,
+  type EnvelopeGroupId,
+  envelopeGroupIdFromString,
+  type SubEnvelope,
+  subEnvelopeIdFromString,
   unarchiveAccount,
   updateAccount,
   updateCategory,
@@ -21,6 +28,8 @@ import { publicProcedure, router } from "../trpc";
 import {
   addAccount,
   addCategory,
+  addEnvelopeGroup,
+  addSubEnvelope,
   deleteCategory,
   getAccounts,
   getCardPurchases,
@@ -54,14 +63,15 @@ function assertIdExists(
  * Read-only Reference-layer queries (Account/Category/EnvelopeGroup/
  * SubEnvelope), plus `createAccount`/`createCategory`/`updateAccount`/
  * `updateCategory`/`archiveAccount`/`unarchiveAccount`/`deleteCategory`
- * mutations — this completes the server side of the "More tab CRUD" thread.
- * An account's "delete" is implemented as a reversible archive
- * (`isArchived: true`/`false`) rather than a hard delete, since historical
- * `Transaction.accountId` values must keep resolving. A category's "delete"
- * is a real removal from the store, but only when no `Transaction` or
- * `CardPurchase` still references it — otherwise it's rejected with
- * `BAD_REQUEST`. Thin wrappers over the in-memory store — no business logic
- * here, that all lives in `@gastos/shared`.
+ * mutations (the "More tab CRUD" thread), plus `createEnvelopeGroup`/
+ * `createSubEnvelope` mutations — the Create-only start of the separate
+ * "Envelope CRUD" thread. An account's "delete" is implemented as a
+ * reversible archive (`isArchived: true`/`false`) rather than a hard delete,
+ * since historical `Transaction.accountId` values must keep resolving. A
+ * category's "delete" is a real removal from the store, but only when no
+ * `Transaction` or `CardPurchase` still references it — otherwise it's
+ * rejected with `BAD_REQUEST`. Thin wrappers over the in-memory store — no
+ * business logic here, that all lives in `@gastos/shared`.
  */
 export const referenceRouter = router({
   accounts: publicProcedure.query(() => getAccounts()),
@@ -174,4 +184,41 @@ export const referenceRouter = router({
     deleteCategory(id);
     return { id };
   }),
+  createEnvelopeGroup: publicProcedure
+    .input(z.object({ name: z.string() }))
+    .mutation(({ input }) => {
+      const envelopeGroup: EnvelopeGroup = createEnvelopeGroup({
+        id: envelopeGroupIdFromString(randomUUID()),
+        name: input.name,
+      });
+      addEnvelopeGroup(envelopeGroup);
+      return envelopeGroup;
+    }),
+  createSubEnvelope: publicProcedure
+    .input(
+      z.object({
+        name: z.string(),
+        groupId: z.string(),
+        accountIds: z.array(z.string()).min(1),
+      }),
+    )
+    .mutation(({ input }) => {
+      const groupId: EnvelopeGroupId = envelopeGroupIdFromString(input.groupId);
+      assertIdExists(getEnvelopeGroups(), groupId, `Envelope group "${groupId}" not found`);
+
+      const accountIds: AccountId[] = input.accountIds.map((rawAccountId) => {
+        const accountId: AccountId = accountIdFromString(rawAccountId);
+        assertIdExists(getAccounts(), accountId, `Account "${accountId}" not found`);
+        return accountId;
+      });
+
+      const subEnvelope: SubEnvelope = createSubEnvelope({
+        id: subEnvelopeIdFromString(randomUUID()),
+        name: input.name,
+        groupId,
+        accountIds,
+      });
+      addSubEnvelope(subEnvelope);
+      return subEnvelope;
+    }),
 });

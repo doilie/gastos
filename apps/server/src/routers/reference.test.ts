@@ -85,6 +85,18 @@ interface CreatedCategory {
   isIncome: boolean;
 }
 
+interface CreatedEnvelopeGroup {
+  id: string;
+  name: string;
+}
+
+interface CreatedSubEnvelope {
+  id: string;
+  name: string;
+  groupId: string;
+  accountIds: string[];
+}
+
 describe("reference router", () => {
   it("reference.accounts returns exactly what store.getAccounts() returns", async () => {
     const app = buildServer();
@@ -585,6 +597,184 @@ describe("reference.updateCategory — validation errors", () => {
     const allCategories = await queryReference<CreatedCategory[]>(app, "categories");
     const found = allCategories.find((category) => category.id === created.id);
     expect(found?.name).toBe("Empty Name Update Category");
+    await app.close();
+  });
+});
+
+// NOTE: reference.createEnvelopeGroup/createSubEnvelope tests below follow
+// the same shared-in-memory-store discipline as createAccount/createCategory
+// above — never assert an absolute total count, only presence/correctness of
+// the specific record created. createSubEnvelope tests use the seeded
+// "account-checking" account id (see store.ts) as a real account to satisfy
+// its accountIds validation, and create a fresh EnvelopeGroup via
+// createEnvelopeGroup first rather than relying on a seeded one.
+
+describe("reference.createEnvelopeGroup — success", () => {
+  it("creates and returns an EnvelopeGroup with a generated id and correct name, and persists it", async () => {
+    const app = buildServer();
+    const data = await mutateReference<CreatedEnvelopeGroup>(app, "createEnvelopeGroup", {
+      name: "Savings Goals",
+    });
+
+    expect(typeof data.id).toBe("string");
+    expect(data.id.length).toBeGreaterThan(0);
+    expect(data.name).toBe("Savings Goals");
+
+    const allGroups = await queryReference<CreatedEnvelopeGroup[]>(app, "envelopeGroups");
+    const found = allGroups.find((group) => group.id === data.id);
+    expect(found).toEqual(data);
+    await app.close();
+  });
+});
+
+describe("reference.createEnvelopeGroup — validation errors", () => {
+  it("returns a non-2xx (INTERNAL_SERVER_ERROR/500) for an empty/whitespace-only name, and does not persist it", async () => {
+    const app = buildServer();
+    // createEnvelopeGroup (the shared factory) throws a plain Error for a
+    // blank name — same unwrapped-propagation convention as
+    // createAccount/createCategory, surfacing as 500, not 400.
+    const { statusCode, error } = await mutateReferenceExpectingError(app, "createEnvelopeGroup", {
+      name: "   ",
+    });
+    expect(statusCode).toBe(500);
+    expect(error.data.code).toBe("INTERNAL_SERVER_ERROR");
+
+    const allGroups = await queryReference<CreatedEnvelopeGroup[]>(app, "envelopeGroups");
+    expect(allGroups.some((group) => group.name.trim() === "")).toBe(false);
+    await app.close();
+  });
+});
+
+describe("reference.createSubEnvelope — success", () => {
+  it("creates and returns a SubEnvelope with a generated id, correct name/groupId/accountIds, and persists it", async () => {
+    const app = buildServer();
+    const group = await mutateReference<CreatedEnvelopeGroup>(app, "createEnvelopeGroup", {
+      name: "Sub Envelope Success Group",
+    });
+
+    const data = await mutateReference<CreatedSubEnvelope>(app, "createSubEnvelope", {
+      name: "New Gadget Fund",
+      groupId: group.id,
+      accountIds: ["account-checking"],
+    });
+
+    expect(typeof data.id).toBe("string");
+    expect(data.id.length).toBeGreaterThan(0);
+    expect(data.name).toBe("New Gadget Fund");
+    expect(data.groupId).toBe(group.id);
+    expect(data.accountIds).toEqual(["account-checking"]);
+
+    const allSubEnvelopes = await queryReference<CreatedSubEnvelope[]>(app, "subEnvelopes");
+    const found = allSubEnvelopes.find((subEnvelope) => subEnvelope.id === data.id);
+    expect(found).toEqual(data);
+    await app.close();
+  });
+});
+
+describe("reference.createSubEnvelope — validation errors", () => {
+  it("returns NOT_FOUND (404) for a nonexistent groupId, and does not persist it", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateReferenceExpectingError(app, "createSubEnvelope", {
+      name: "Orphan Sub Envelope",
+      groupId: "envelope-group-does-not-exist",
+      accountIds: ["account-checking"],
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+
+    const allSubEnvelopes = await queryReference<CreatedSubEnvelope[]>(app, "subEnvelopes");
+    expect(allSubEnvelopes.some((subEnvelope) => subEnvelope.name === "Orphan Sub Envelope")).toBe(
+      false,
+    );
+    await app.close();
+  });
+
+  it("returns NOT_FOUND (404) when one of the accountIds does not exist, and does not persist it", async () => {
+    const app = buildServer();
+    const group = await mutateReference<CreatedEnvelopeGroup>(app, "createEnvelopeGroup", {
+      name: "Bad Account Id Group",
+    });
+
+    const { statusCode, error } = await mutateReferenceExpectingError(app, "createSubEnvelope", {
+      name: "Bad Account Sub Envelope",
+      groupId: group.id,
+      accountIds: ["account-checking", "account-does-not-exist"],
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+
+    const allSubEnvelopes = await queryReference<CreatedSubEnvelope[]>(app, "subEnvelopes");
+    expect(
+      allSubEnvelopes.some((subEnvelope) => subEnvelope.name === "Bad Account Sub Envelope"),
+    ).toBe(false);
+    await app.close();
+  });
+
+  it("returns BAD_REQUEST (400) for an empty accountIds array (Zod's .min(1) shape validation)", async () => {
+    const app = buildServer();
+    const group = await mutateReference<CreatedEnvelopeGroup>(app, "createEnvelopeGroup", {
+      name: "Empty AccountIds Group",
+    });
+
+    const { statusCode, error } = await mutateReferenceExpectingError(app, "createSubEnvelope", {
+      name: "No Accounts Sub Envelope",
+      groupId: group.id,
+      accountIds: [],
+    });
+    expect(statusCode).toBe(400);
+    expect(error.data.code).toBe("BAD_REQUEST");
+
+    const allSubEnvelopes = await queryReference<CreatedSubEnvelope[]>(app, "subEnvelopes");
+    expect(
+      allSubEnvelopes.some((subEnvelope) => subEnvelope.name === "No Accounts Sub Envelope"),
+    ).toBe(false);
+    await app.close();
+  });
+
+  it("returns a non-2xx (INTERNAL_SERVER_ERROR/500) for an empty/whitespace-only name, and does not persist it", async () => {
+    const app = buildServer();
+    const group = await mutateReference<CreatedEnvelopeGroup>(app, "createEnvelopeGroup", {
+      name: "Empty Name Sub Envelope Group",
+    });
+
+    // createSubEnvelope (the shared factory) throws a plain Error for a
+    // blank name — same unwrapped-propagation convention as above, since
+    // Zod's own schema only requires `name` to be a string, not non-empty.
+    const { statusCode, error } = await mutateReferenceExpectingError(app, "createSubEnvelope", {
+      name: "   ",
+      groupId: group.id,
+      accountIds: ["account-checking"],
+    });
+    expect(statusCode).toBe(500);
+    expect(error.data.code).toBe("INTERNAL_SERVER_ERROR");
+
+    const allSubEnvelopes = await queryReference<CreatedSubEnvelope[]>(app, "subEnvelopes");
+    expect(allSubEnvelopes.some((subEnvelope) => subEnvelope.name.trim() === "")).toBe(false);
+    await app.close();
+  });
+
+  it("returns a non-2xx (INTERNAL_SERVER_ERROR/500) for duplicate entries in accountIds, and does not persist it", async () => {
+    const app = buildServer();
+    const group = await mutateReference<CreatedEnvelopeGroup>(app, "createEnvelopeGroup", {
+      name: "Duplicate AccountIds Group",
+    });
+
+    // Each entry individually resolves to a real account (the router's own
+    // assertIdExists loop only checks existence per-entry, not uniqueness),
+    // so this failure comes from the shared factory's own duplicate check —
+    // same unwrapped-propagation convention as above.
+    const { statusCode, error } = await mutateReferenceExpectingError(app, "createSubEnvelope", {
+      name: "Duplicate Account Sub Envelope",
+      groupId: group.id,
+      accountIds: ["account-checking", "account-checking"],
+    });
+    expect(statusCode).toBe(500);
+    expect(error.data.code).toBe("INTERNAL_SERVER_ERROR");
+
+    const allSubEnvelopes = await queryReference<CreatedSubEnvelope[]>(app, "subEnvelopes");
+    expect(
+      allSubEnvelopes.some((subEnvelope) => subEnvelope.name === "Duplicate Account Sub Envelope"),
+    ).toBe(false);
     await app.close();
   });
 });
