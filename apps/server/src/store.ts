@@ -10,6 +10,7 @@ import {
   type CardPurchase,
   cardPurchaseIdFromString,
   type Category,
+  type CategoryId,
   categoryIdFromString,
   centsFromInt,
   createAccount,
@@ -246,6 +247,18 @@ export function addCategory(category: Category): void {
 export function replaceCategory(category: Category): void {
   const index = categories.findIndex((existing) => existing.id === category.id);
   categories[index] = category;
+}
+
+/**
+ * Removes the category with the given `id` from the in-memory store. Trusts
+ * the caller (the router) already validated it's safe to delete (e.g. no
+ * transaction/card purchase still references it) — no such check here,
+ * mirroring `addCategory`/`replaceCategory`'s "store just does the
+ * mechanical operation" split.
+ */
+export function deleteCategory(id: CategoryId): void {
+  const index = categories.findIndex((existing) => existing.id === id);
+  categories.splice(index, 1);
 }
 
 /** Returns the seeded envelope groups. */

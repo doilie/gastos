@@ -1,7 +1,13 @@
 import fc from "fast-check";
 import { describe, expect, it } from "vitest";
 
-import { accountIdFromString, createAccount, updateAccount } from "./account";
+import {
+  accountIdFromString,
+  archiveAccount,
+  createAccount,
+  unarchiveAccount,
+  updateAccount,
+} from "./account";
 import { currencyCodeFromString } from "./currency";
 
 describe("accountIdFromString", () => {
@@ -110,5 +116,50 @@ describe("updateAccount", () => {
   it("never changes id, regardless of updates", () => {
     const updated = updateAccount(account, { name: "Whatever", currency: otherCurrency });
     expect(updated.id).toBe(account.id);
+  });
+});
+
+describe("archiveAccount", () => {
+  const id = accountIdFromString("acc-1");
+  const currency = currencyCodeFromString("PHP");
+  const account = createAccount({ id, name: "Checking", currency });
+
+  it("sets isArchived to true, leaving id/name/currency unchanged", () => {
+    const archived = archiveAccount(account);
+    expect(archived).toEqual({
+      id,
+      name: "Checking",
+      currency,
+      isArchived: true,
+    });
+  });
+
+  it("is idempotent — archiving an already-archived account stays isArchived: true", () => {
+    const archived = archiveAccount(account);
+    const archivedAgain = archiveAccount(archived);
+    expect(archivedAgain).toEqual(archived);
+  });
+});
+
+describe("unarchiveAccount", () => {
+  const id = accountIdFromString("acc-1");
+  const currency = currencyCodeFromString("PHP");
+  const account = createAccount({ id, name: "Checking", currency });
+  const archivedAccount = archiveAccount(account);
+
+  it("sets isArchived to false, leaving id/name/currency unchanged", () => {
+    const unarchived = unarchiveAccount(archivedAccount);
+    expect(unarchived).toEqual({
+      id,
+      name: "Checking",
+      currency,
+      isArchived: false,
+    });
+  });
+
+  it("is idempotent — unarchiving an already-unarchived account stays isArchived: false", () => {
+    const unarchived = unarchiveAccount(account);
+    const unarchivedAgain = unarchiveAccount(unarchived);
+    expect(unarchivedAgain).toEqual(unarchived);
   });
 });

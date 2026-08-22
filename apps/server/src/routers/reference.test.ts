@@ -423,6 +423,140 @@ describe("reference.updateCategory — success", () => {
   });
 });
 
+// NOTE: reference.archiveAccount/unarchiveAccount tests below each create a
+// FRESH account via createAccount first, then archive/unarchive THAT record —
+// never a seeded one — per this file's existing createAccount/updateAccount
+// precedent.
+
+describe("reference.archiveAccount — success", () => {
+  it("sets isArchived to true, leaving id/name/currency unchanged, and persists it", async () => {
+    const app = buildServer();
+    const created = await mutateReference<CreatedAccount>(app, "createAccount", {
+      name: "Archive Me",
+      currency: "PHP",
+    });
+
+    const archived = await mutateReference<CreatedAccount>(app, "archiveAccount", {
+      id: created.id,
+    });
+
+    expect(archived.id).toBe(created.id);
+    expect(archived.name).toBe(created.name);
+    expect(archived.currency).toBe(created.currency);
+    expect(archived.isArchived).toBe(true);
+
+    const allAccounts = await queryReference<CreatedAccount[]>(app, "accounts");
+    const found = allAccounts.find((account) => account.id === created.id);
+    expect(found).toEqual(archived);
+    await app.close();
+  });
+});
+
+describe("reference.unarchiveAccount — success", () => {
+  it("sets isArchived back to false on a previously-archived account, leaving id/name/currency unchanged, and persists it", async () => {
+    const app = buildServer();
+    const created = await mutateReference<CreatedAccount>(app, "createAccount", {
+      name: "Archive Then Unarchive Me",
+      currency: "PHP",
+    });
+
+    const archived = await mutateReference<CreatedAccount>(app, "archiveAccount", {
+      id: created.id,
+    });
+    expect(archived.isArchived).toBe(true);
+
+    const unarchived = await mutateReference<CreatedAccount>(app, "unarchiveAccount", {
+      id: created.id,
+    });
+
+    expect(unarchived.id).toBe(created.id);
+    expect(unarchived.name).toBe(created.name);
+    expect(unarchived.currency).toBe(created.currency);
+    expect(unarchived.isArchived).toBe(false);
+
+    const allAccounts = await queryReference<CreatedAccount[]>(app, "accounts");
+    const found = allAccounts.find((account) => account.id === created.id);
+    expect(found).toEqual(unarchived);
+    await app.close();
+  });
+});
+
+describe("reference.archiveAccount/unarchiveAccount — validation errors", () => {
+  it("archiveAccount returns NOT_FOUND (404) for a well-formed but nonexistent id", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateReferenceExpectingError(app, "archiveAccount", {
+      id: "account-does-not-exist",
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("unarchiveAccount returns NOT_FOUND (404) for a well-formed but nonexistent id", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateReferenceExpectingError(app, "unarchiveAccount", {
+      id: "account-does-not-exist",
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+});
+
+// NOTE: reference.deleteCategory tests below rely on the seeded
+// "category-groceries" category (see store.ts) being referenced by the
+// seeded "txn-groceries-1"/"txn-groceries-2" transactions — this is existing
+// seed data, not something these tests create, so the "in use" rejection
+// test targets it specifically rather than a freshly-created category.
+
+describe("reference.deleteCategory — rejected (still in use)", () => {
+  it("returns BAD_REQUEST (400) for a category referenced by an existing transaction, and does not remove it", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateReferenceExpectingError(app, "deleteCategory", {
+      id: "category-groceries",
+    });
+    expect(statusCode).toBe(400);
+    expect(error.data.code).toBe("BAD_REQUEST");
+    expect(error.message).toBe(
+      'Category "category-groceries" is still in use and cannot be deleted',
+    );
+
+    const allCategories = await queryReference<CreatedCategory[]>(app, "categories");
+    expect(allCategories.some((category) => category.id === "category-groceries")).toBe(true);
+    await app.close();
+  });
+});
+
+describe("reference.deleteCategory — success", () => {
+  it("removes an unreferenced (freshly-created) category and returns its id", async () => {
+    const app = buildServer();
+    const created = await mutateReference<CreatedCategory>(app, "createCategory", {
+      name: "Unreferenced Category",
+    });
+
+    const result = await mutateReference<{ id: string }>(app, "deleteCategory", {
+      id: created.id,
+    });
+    expect(result).toEqual({ id: created.id });
+
+    const allCategories = await queryReference<CreatedCategory[]>(app, "categories");
+    expect(allCategories.some((category) => category.id === created.id)).toBe(false);
+    await app.close();
+  });
+});
+
+describe("reference.deleteCategory — validation errors", () => {
+  it("returns NOT_FOUND (404) for a well-formed but nonexistent id", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateReferenceExpectingError(app, "deleteCategory", {
+      id: "category-does-not-exist",
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+});
+
 describe("reference.updateCategory — validation errors", () => {
   it("returns NOT_FOUND (404) for a well-formed but nonexistent id", async () => {
     const app = buildServer();

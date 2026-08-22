@@ -2,12 +2,14 @@ import {
   type Account,
   type AccountId,
   accountIdFromString,
+  archiveAccount,
   type Category,
   type CategoryId,
   categoryIdFromString,
   createAccount,
   createCategory,
   currencyCodeFromString,
+  unarchiveAccount,
   updateAccount,
   updateCategory,
 } from "@gastos/shared";
@@ -19,10 +21,13 @@ import { publicProcedure, router } from "../trpc";
 import {
   addAccount,
   addCategory,
+  deleteCategory,
   getAccounts,
+  getCardPurchases,
   getCategories,
   getEnvelopeGroups,
   getSubEnvelopes,
+  getTransactions,
   replaceAccount,
   replaceCategory,
 } from "../store";
@@ -48,11 +53,15 @@ function assertIdExists(
 /**
  * Read-only Reference-layer queries (Account/Category/EnvelopeGroup/
  * SubEnvelope), plus `createAccount`/`createCategory`/`updateAccount`/
- * `updateCategory` mutations — the "More tab CRUD" thread's Create+Update
- * slice. Archive/Delete are deferred to later increments (`isArchived` in
- * particular is out of scope for `updateAccount` here). Thin wrappers over
- * the in-memory store — no business logic here, that all lives in
- * `@gastos/shared`.
+ * `updateCategory`/`archiveAccount`/`unarchiveAccount`/`deleteCategory`
+ * mutations — this completes the server side of the "More tab CRUD" thread.
+ * An account's "delete" is implemented as a reversible archive
+ * (`isArchived: true`/`false`) rather than a hard delete, since historical
+ * `Transaction.accountId` values must keep resolving. A category's "delete"
+ * is a real removal from the store, but only when no `Transaction` or
+ * `CardPurchase` still references it — otherwise it's rejected with
+ * `BAD_REQUEST`. Thin wrappers over the in-memory store — no business logic
+ * here, that all lives in `@gastos/shared`.
  */
 export const referenceRouter = router({
   accounts: publicProcedure.query(() => getAccounts()),
@@ -123,4 +132,46 @@ export const referenceRouter = router({
       replaceCategory(updated);
       return updated;
     }),
+  archiveAccount: publicProcedure.input(z.object({ id: z.string() })).mutation(({ input }) => {
+    const id: AccountId = accountIdFromString(input.id);
+    const existing = getAccounts().find((account) => account.id === id);
+    if (existing === undefined) {
+      throw new TRPCError({ code: "NOT_FOUND", message: `Account "${id}" not found` });
+    }
+
+    const updated = archiveAccount(existing);
+    replaceAccount(updated);
+    return updated;
+  }),
+  unarchiveAccount: publicProcedure.input(z.object({ id: z.string() })).mutation(({ input }) => {
+    const id: AccountId = accountIdFromString(input.id);
+    const existing = getAccounts().find((account) => account.id === id);
+    if (existing === undefined) {
+      throw new TRPCError({ code: "NOT_FOUND", message: `Account "${id}" not found` });
+    }
+
+    const updated = unarchiveAccount(existing);
+    replaceAccount(updated);
+    return updated;
+  }),
+  deleteCategory: publicProcedure.input(z.object({ id: z.string() })).mutation(({ input }) => {
+    const id: CategoryId = categoryIdFromString(input.id);
+    const existing = getCategories().find((category) => category.id === id);
+    if (existing === undefined) {
+      throw new TRPCError({ code: "NOT_FOUND", message: `Category "${id}" not found` });
+    }
+
+    const isReferenced =
+      getTransactions().some((transaction) => transaction.categoryId === id) ||
+      getCardPurchases().some((purchase) => purchase.categoryId === id);
+    if (isReferenced) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: `Category "${id}" is still in use and cannot be deleted`,
+      });
+    }
+
+    deleteCategory(id);
+    return { id };
+  }),
 });

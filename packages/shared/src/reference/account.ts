@@ -72,3 +72,23 @@ export function updateAccount(
     ...(updates.currency === undefined ? {} : { currency: updates.currency }),
   };
 }
+
+/**
+ * Marks `account` as archived (`isArchived: true`). This is the "delete" for
+ * an account per HLD decision A3/repo convention: a hard delete would break
+ * referential integrity for historical `Transaction.accountId` values, so
+ * archiving (hiding, not removing) is used instead. Touches only
+ * `isArchived` — nothing else on `account` changes.
+ */
+export function archiveAccount(account: Account): Account {
+  return { ...account, isArchived: true };
+}
+
+/**
+ * Reverses `archiveAccount` (`isArchived: false`), making an archived
+ * account active again. Touches only `isArchived` — nothing else on
+ * `account` changes.
+ */
+export function unarchiveAccount(account: Account): Account {
+  return { ...account, isArchived: false };
+}
