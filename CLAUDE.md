@@ -312,6 +312,16 @@ conventions used throughout `reference.ts`. `apps/server/src/store.ts` gained
 Delete for envelopes is the remaining piece of this thread's server side, and edit controls in the
 Envelopes tab are the remaining UI piece.
 
+Increment 40 wires that UI: the Envelopes tab (`apps/mobile/app/(tabs)/envelopes.tsx`) gets inline
+Edit controls mirroring the More tab's edit pattern — `EnvelopeGroupSection`'s heading gets an
+"Edit" control revealing a pre-filled name input, and each `SubEnvelopeRow` gets an "Edit" control
+that fully replaces its balance display with a pre-filled name input plus the existing
+`AccountMultiSelect` (pre-selected to the sub-envelope's current `accountIds`). Both mirror
+`more.tsx`'s collapsed-button-to-inline-fields pattern: Cancel reverts to the saved values (never
+blanks) without calling the mutation, Save calls `updateEnvelopeGroup`/`updateSubEnvelope`. This
+completes the Envelopes tab's Create+Update UI; Archive/Delete for envelopes remains the last
+unstarted piece of the Envelope CRUD thread, on both the server and UI sides.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
