@@ -249,6 +249,14 @@ convention as `createAccount`/`createCategory` (a malformed currency or empty na
 validated split). Live-verified via curl. No UI wiring yet — edit controls in the More tab are the
 next piece of this thread.
 
+Increment 34 wires that UI: each account/category row in the More tab now has an "Edit" control
+that reveals pre-filled `name`/`currency` (accounts) or `name`/`isIncome` (categories) fields,
+mirroring the existing "+ Add" forms' structure but pre-populated and calling
+`reference.updateAccount`/`updateCategory`. Cancel reverts any uncommitted changes back to the
+row's current saved values (not a blank state) and exits edit mode without saving. This completes
+the "More tab CRUD" thread's Create+Update UI; Archive/Delete remains a separate, later,
+not-yet-scoped increment.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
