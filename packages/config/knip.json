@@ -12,6 +12,9 @@
     },
     "packages/shared": {
       "project": ["src/**/*.ts"]
+    },
+    "packages/db": {
+      "project": ["src/**/*.ts"]
     }
   }
 }

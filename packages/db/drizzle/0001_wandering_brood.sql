@@ -1,0 +1,1 @@
+ALTER TABLE "card_purchases" ALTER COLUMN "funding_source_kind" SET NOT NULL;

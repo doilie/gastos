@@ -1,0 +1,14 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: gastos
+      POSTGRES_PASSWORD: gastos
+      POSTGRES_DB: gastos_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - gastos_pg_data:/var/lib/postgresql/data
+
+volumes:
+  gastos_pg_data:

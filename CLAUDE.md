@@ -438,8 +438,11 @@ pnpm workspaces + Turborepo, TypeScript everywhere.
 ```
 apps/server        Fastify + tRPC API server (Node, ESM). No database yet.
 apps/mobile         Expo (React Native) + Expo Router.
-packages/shared     Zod schemas, Drizzle types, domain logic. Consumed as TypeScript
-                    source directly (no build step) — apps import from "@gastos/shared".
+packages/shared     Zod schemas, domain logic. Consumed as TypeScript source directly
+                    (no build step) — apps import from "@gastos/shared".
+packages/db         Drizzle ORM schema and Postgres client. Server-only — apps/server
+                    depends on it, apps/mobile never does (avoids bundling
+                    Postgres-specific code into Metro's build).
 packages/config     Shared ESLint (flat config), Prettier, and Knip config.
 ```
 

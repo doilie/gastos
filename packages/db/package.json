@@ -1,0 +1,33 @@
+{
+  "name": "@gastos/db",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Drizzle ORM schema and Postgres client for gastos. Server-only — apps/mobile never depends on this package.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "db:generate": "drizzle-kit generate"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@gastos/config": "workspace:*",
+    "@testcontainers/postgresql": "^12.1.0",
+    "dotenv": "^17.4.2",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^10.8.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  }
+}
