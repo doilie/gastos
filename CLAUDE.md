@@ -237,6 +237,18 @@ local boolean (not React Native's `Switch` — nothing else in this codebase use
 the Create half of the "More tab CRUD" thread; Update and Archive/Delete remain separate, later,
 not-yet-scoped increments.
 
+Increment 33 adds the server side of Update: `updateAccount`/`updateCategory`
+(`packages/shared/src/reference/account.ts`/`category.ts`) apply a partial update (`name`/
+`currency` for accounts, `name`/`isIncome` for categories) — `id` and, for accounts, `isArchived`
+are never touched by these functions (`isArchived` belongs to the separate, not-yet-scoped
+"Archive" increment). `reference.updateAccount`/`updateCategory` tRPC mutations wrap them with the
+existing `assertIdExists`/`NOT_FOUND` lookup pattern and the same unwrapped-`Error`-propagation
+convention as `createAccount`/`createCategory` (a malformed currency or empty name surfaces as
+500, not 400). `apps/server/src/store.ts` gained `replaceAccount`/`replaceCategory`
+(findIndex-and-overwrite, mirroring `addAccount`/`addCategory`'s trust-the-caller-already-
+validated split). Live-verified via curl. No UI wiring yet — edit controls in the More tab are the
+next piece of this thread.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
