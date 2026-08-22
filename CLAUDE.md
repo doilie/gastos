@@ -269,6 +269,17 @@ deleted, not archived. `apps/server/src/store.ts` gained `deleteCategory` (find-
 Live-verified via curl. No UI wiring yet — Archive/Delete controls in the More tab are the
 remaining piece before this thread reaches the app.
 
+Increment 36 wires that UI, completing the "More tab CRUD" thread end-to-end: each account row
+gets an Archive/Unarchive toggle (label reflects `isArchived`, no confirmation since it's
+reversible) plus an `" (archived)"` suffix on the currency line when archived — archived accounts
+are not filtered out of the list, just labeled. Each category row gets a Delete control that
+reveals an inline "Delete this category?" confirmation before calling the mutation (Cancel never
+mutates); on rejection it surfaces the mutation's actual server error message (e.g. "still in
+use") via `error?.message`, falling back to a generic message only if that's empty, rather than
+always showing a generic error like every other form in this app does — a deliberate exception,
+since this rejection reason is specific and user-actionable. This is the last piece of the "More
+tab CRUD" thread (`req/what-i-want.txt`'s "account crud"/"category crud").
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
