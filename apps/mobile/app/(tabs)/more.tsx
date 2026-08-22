@@ -47,10 +47,7 @@ function AccountsSection({ accounts }: { accounts: readonly Account[] }) {
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>Accounts</Text>
       {accounts.map((account) => (
-        <View key={account.id} style={styles.row}>
-          <Text style={styles.rowName}>{account.name}</Text>
-          <Text style={styles.rowDetail}>{account.currency}</Text>
-        </View>
+        <AccountRow key={account.id} account={account} />
       ))}
       <AddAccountForm />
     </View>
@@ -63,14 +60,230 @@ function CategoriesSection({ categories }: { categories: readonly Category[] }) 
     <View style={styles.section}>
       <Text style={styles.sectionTitle}>Categories</Text>
       {categories.map((category) => (
-        <View key={category.id} style={styles.row}>
-          <Text style={styles.rowName}>
-            {category.name}
-            {category.isIncome ? " (income)" : ""}
-          </Text>
-        </View>
+        <CategoryRow key={category.id} category={category} />
       ))}
       <AddCategoryForm />
+    </View>
+  );
+}
+
+/**
+ * One `Account` row: read-only display plus an "Edit" control that reveals
+ * pre-filled `AccountEditFields`, mirroring `AddAccountForm`'s split.
+ */
+function AccountRow({ account }: { account: Account }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [name, setName] = useState(account.name);
+  const [currency, setCurrency] = useState<string>(account.currency);
+  const utils = trpc.useUtils();
+  const updateAccount = trpc.reference.updateAccount.useMutation({
+    onSuccess: () => {
+      void utils.reference.accounts.invalidate();
+      setIsEditing(false);
+    },
+  });
+
+  function startEdit() {
+    setName(account.name);
+    setCurrency(account.currency);
+    updateAccount.reset();
+    setIsEditing(true);
+  }
+
+  function cancelEdit() {
+    setName(account.name);
+    setCurrency(account.currency);
+    updateAccount.reset();
+    setIsEditing(false);
+  }
+
+  function handleSave() {
+    // Always send both fields — simpler than diffing against the original, and the
+    // mutation accepts idempotent same-value updates, so this is also correct.
+    updateAccount.mutate({ id: account.id, name: name.trim(), currency });
+  }
+
+  if (!isEditing) {
+    return (
+      <View style={styles.row}>
+        <View>
+          <Text style={styles.rowName}>{account.name}</Text>
+          <Text style={styles.rowDetail}>{account.currency}</Text>
+        </View>
+        <Pressable style={styles.editButton} onPress={startEdit}>
+          <Text style={styles.editButtonText}>Edit</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  return (
+    <AccountEditFields
+      name={name}
+      currency={currency}
+      canSave={name.trim().length > 0 && isValidCurrency(currency)}
+      isPending={updateAccount.isPending}
+      isError={updateAccount.isError}
+      onNameChange={setName}
+      onCurrencyChange={(text) => setCurrency(text.toUpperCase())}
+      onCancel={cancelEdit}
+      onSave={handleSave}
+    />
+  );
+}
+
+/** The revealed `AccountRow`'s edit inputs/controls — split out to keep the parent under the line/complexity caps. */
+function AccountEditFields(props: {
+  name: string;
+  currency: string;
+  canSave: boolean;
+  isPending: boolean;
+  isError: boolean;
+  onNameChange: (value: string) => void;
+  onCurrencyChange: (value: string) => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  const disabled = props.isPending;
+  return (
+    <View style={styles.form}>
+      <TextInput
+        style={styles.input}
+        placeholder="Name"
+        value={props.name}
+        editable={!disabled}
+        onChangeText={props.onNameChange}
+      />
+      <TextInput
+        style={styles.input}
+        placeholder="Currency (e.g. USD)"
+        autoCapitalize="characters"
+        value={props.currency}
+        editable={!disabled}
+        onChangeText={props.onCurrencyChange}
+      />
+      {props.isError && <Text style={styles.error}>Couldn&apos;t save — try again.</Text>}
+      <View style={styles.formButtons}>
+        <Pressable style={styles.formButton} disabled={disabled} onPress={props.onCancel}>
+          <Text>Cancel</Text>
+        </Pressable>
+        <Pressable
+          style={styles.formButton}
+          disabled={disabled || !props.canSave}
+          onPress={props.onSave}
+        >
+          <Text>{props.isPending ? "Saving…" : "Save"}</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * One `Category` row: read-only display plus an "Edit" control that reveals
+ * pre-filled `CategoryEditFields`, mirroring `AddCategoryForm`'s split.
+ */
+function CategoryRow({ category }: { category: Category }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [name, setName] = useState(category.name);
+  const [isIncome, setIsIncome] = useState(category.isIncome);
+  const utils = trpc.useUtils();
+  const updateCategory = trpc.reference.updateCategory.useMutation({
+    onSuccess: () => {
+      void utils.reference.categories.invalidate();
+      setIsEditing(false);
+    },
+  });
+
+  function startEdit() {
+    setName(category.name);
+    setIsIncome(category.isIncome);
+    updateCategory.reset();
+    setIsEditing(true);
+  }
+
+  function cancelEdit() {
+    setName(category.name);
+    setIsIncome(category.isIncome);
+    updateCategory.reset();
+    setIsEditing(false);
+  }
+
+  function handleSave() {
+    updateCategory.mutate({ id: category.id, name: name.trim(), isIncome });
+  }
+
+  if (!isEditing) {
+    return (
+      <View style={styles.row}>
+        <Text style={styles.rowName}>
+          {category.name}
+          {category.isIncome ? " (income)" : ""}
+        </Text>
+        <Pressable style={styles.editButton} onPress={startEdit}>
+          <Text style={styles.editButtonText}>Edit</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  return (
+    <CategoryEditFields
+      name={name}
+      isIncome={isIncome}
+      canSave={name.trim().length > 0}
+      isPending={updateCategory.isPending}
+      isError={updateCategory.isError}
+      onNameChange={setName}
+      onToggleIsIncome={() => setIsIncome((current) => !current)}
+      onCancel={cancelEdit}
+      onSave={handleSave}
+    />
+  );
+}
+
+/** The revealed `CategoryRow`'s edit inputs/controls — split out to keep the parent under the line/complexity caps. */
+function CategoryEditFields(props: {
+  name: string;
+  isIncome: boolean;
+  canSave: boolean;
+  isPending: boolean;
+  isError: boolean;
+  onNameChange: (value: string) => void;
+  onToggleIsIncome: () => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  const disabled = props.isPending;
+  return (
+    <View style={styles.form}>
+      <TextInput
+        style={styles.input}
+        placeholder="Name"
+        value={props.name}
+        editable={!disabled}
+        onChangeText={props.onNameChange}
+      />
+      <Pressable
+        style={styles.toggleButton}
+        disabled={disabled}
+        onPress={props.onToggleIsIncome}
+      >
+        <Text>{props.isIncome ? "Income" : "Expense"}</Text>
+      </Pressable>
+      {props.isError && <Text style={styles.error}>Couldn&apos;t save — try again.</Text>}
+      <View style={styles.formButtons}>
+        <Pressable style={styles.formButton} disabled={disabled} onPress={props.onCancel}>
+          <Text>Cancel</Text>
+        </Pressable>
+        <Pressable
+          style={styles.formButton}
+          disabled={disabled || !props.canSave}
+          onPress={props.onSave}
+        >
+          <Text>{props.isPending ? "Saving…" : "Save"}</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -318,6 +531,14 @@ const styles = StyleSheet.create({
   },
   addButtonText: {
     fontSize: 16,
+    fontWeight: "600",
+  },
+  editButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  editButtonText: {
+    fontSize: 14,
     fontWeight: "600",
   },
   form: {
