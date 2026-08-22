@@ -322,6 +322,22 @@ blanks) without calling the mutation, Save calls `updateEnvelopeGroup`/`updateSu
 completes the Envelopes tab's Create+Update UI; Archive/Delete for envelopes remains the last
 unstarted piece of the Envelope CRUD thread, on both the server and UI sides.
 
+Increment 41 adds the server side of Archive/Delete for envelopes: unlike the Account/Category
+split, the referential-integrity shape flips here. `SubEnvelope` gained `isArchived: boolean`
+(`packages/shared/src/reference/envelope.ts`), and `archiveSubEnvelope`/`unarchiveSubEnvelope`
+mirror `archiveAccount`/`unarchiveAccount` exactly — because `Transaction.subEnvelopeId` is a
+required, non-null field (same as `Transaction.accountId`), so a sub-envelope's "delete" must be a
+reversible archive, not a hard delete. `archiveSubEnvelope` throws (unwrapped `Error`, surfacing as
+500) if given the reserved `SPENDABLE_ENVELOPE_ID` — Spendable can never be archived;
+`unarchiveSubEnvelope` has no such restriction. `EnvelopeGroup`, conversely, gets a guarded hard
+delete mirroring `deleteCategory` — nothing in the ledger references `EnvelopeGroupId` directly
+(only `SubEnvelope.groupId` does), so `reference.deleteEnvelopeGroup` rejects with `BAD_REQUEST`
+when any `SubEnvelope` still has a matching `groupId`, otherwise removes it via the store's new
+`deleteEnvelopeGroup` (find-and-splice, mirroring `deleteCategory`'s store function).
+`reference.archiveSubEnvelope`/`unarchiveSubEnvelope` reuse the existing `replaceSubEnvelope` store
+function. No UI wiring yet — Archive/Delete controls in the Envelopes tab are the last remaining
+piece of the Envelope CRUD thread.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
