@@ -257,6 +257,18 @@ row's current saved values (not a blank state) and exits edit mode without savin
 the "More tab CRUD" thread's Create+Update UI; Archive/Delete remains a separate, later,
 not-yet-scoped increment.
 
+Increment 35 completes the server side of the "More tab CRUD" thread: `archiveAccount`/
+`unarchiveAccount` (`packages/shared/src/reference/account.ts`) toggle only `isArchived`, exposed
+via `reference.archiveAccount`/`unarchiveAccount` mutations. An account's "delete" is this
+reversible archive rather than a hard delete, since historical `Transaction.accountId` values must
+keep resolving. `reference.deleteCategory` is a real removal from the store — but rejected with
+`BAD_REQUEST` when any `Transaction` or `CardPurchase` still references the category's id (checked
+via `getTransactions()`/`getCardPurchases()`), for the identical referential-integrity reason;
+`Category` has no `isArchived` field, so unlike accounts, an unreferenced category is genuinely
+deleted, not archived. `apps/server/src/store.ts` gained `deleteCategory` (find-and-splice).
+Live-verified via curl. No UI wiring yet — Archive/Delete controls in the More tab are the
+remaining piece before this thread reaches the app.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
