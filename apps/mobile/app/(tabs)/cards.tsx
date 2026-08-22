@@ -8,7 +8,8 @@ import {
   ledgerDateFromString,
   sumCardPurchasesInCycle,
 } from "@gastos/shared";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { trpc } from "../../lib/trpc";
 
@@ -18,11 +19,22 @@ function todayLedgerDate(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+/** Shifts a `LedgerDate` by `delta` calendar days (UTC, no DST concerns since
+ * `LedgerDate` is a plain `YYYY-MM-DD` string), re-validating the result. */
+function shiftLedgerDateByDays(date: LedgerDate, delta: number): LedgerDate {
+  const parsed = new Date(`${date}T00:00:00Z`);
+  const shifted = new Date(
+    Date.UTC(parsed.getUTCFullYear(), parsed.getUTCMonth(), parsed.getUTCDate() + delta),
+  );
+  return ledgerDateFromString(shifted.toISOString().slice(0, 10));
+}
+
 /**
- * Cards tab: one section per `CreditCard` showing its current billing
- * cycle's date range, total spend, and the list of purchases in that cycle.
- * Drilling into past cycles and the settlement/payment-allocation flow are
- * later increments — this is read-only display of the current cycle only.
+ * Cards tab: one section per `CreditCard` showing a billing cycle's date
+ * range, total spend, and the list of purchases in that cycle. Defaults to
+ * the cycle containing today, with Prev/Next controls to browse past cycles
+ * (and back to the present) per card. The settlement/payment-allocation flow
+ * is still a later increment — this remains read-only.
  */
 export default function CardsScreen() {
   const creditCards = trpc.cards.creditCards.useQuery();
@@ -61,7 +73,9 @@ export default function CardsScreen() {
   );
 }
 
-/** Renders one `CreditCard`'s current-cycle heading plus its purchase list. */
+/** Renders one `CreditCard`'s cycle heading (with Prev/Next navigation) plus
+ * its purchase list. Defaults to the cycle containing `today`, but the user
+ * can browse past cycles via `referenceDate` local state. */
 function CreditCardSection({
   card,
   today,
@@ -71,18 +85,23 @@ function CreditCardSection({
   today: LedgerDate;
   purchases: readonly CardPurchase[];
 }) {
-  const cycle = cardCycleContaining(card.cutoffDay, today);
+  const [referenceDate, setReferenceDate] = useState<LedgerDate>(today);
+  const cycle = cardCycleContaining(card.cutoffDay, referenceDate);
   const cycleTotal = sumCardPurchasesInCycle(purchases, cycle);
   const cyclePurchases = purchases.filter((purchase) =>
     isDateWithinCardCycle(purchase.date, cycle),
   );
+  const isCurrentCycle = isDateWithinCardCycle(today, cycle);
 
   return (
     <View style={styles.section}>
       <Text style={styles.cardName}>{card.name}</Text>
-      <Text style={styles.cycleRange}>
-        {cycle.start} – {cycle.end}
-      </Text>
+      <CycleNavigation
+        cycle={cycle}
+        isCurrentCycle={isCurrentCycle}
+        onPrev={() => setReferenceDate(shiftLedgerDateByDays(cycle.start, -1))}
+        onNext={() => setReferenceDate(shiftLedgerDateByDays(cycle.end, 1))}
+      />
       <Text style={styles.cycleTotal}>{formatCents(cycleTotal)}</Text>
       {cyclePurchases.length === 0 ? (
         <Text style={styles.emptyText}>No purchases this cycle</Text>
@@ -91,6 +110,38 @@ function CreditCardSection({
           <CardPurchaseRow key={purchase.id} purchase={purchase} />
         ))
       )}
+    </View>
+  );
+}
+
+/** Prev/heading/Next row for browsing a `CreditCardSection`'s cycles. Next is
+ * disabled once the currently-displayed cycle already contains `today`. */
+function CycleNavigation({
+  cycle,
+  isCurrentCycle,
+  onPrev,
+  onNext,
+}: {
+  cycle: { start: LedgerDate; end: LedgerDate };
+  isCurrentCycle: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <View style={styles.cycleNavRow}>
+      <Pressable style={styles.cycleNavButton} onPress={onPrev}>
+        <Text style={styles.cycleNavButtonText}>‹ Prev</Text>
+      </Pressable>
+      <Text style={styles.cycleRange}>
+        {cycle.start} – {cycle.end}
+      </Text>
+      <Pressable
+        style={styles.cycleNavButton}
+        disabled={isCurrentCycle}
+        onPress={onNext}
+      >
+        <Text style={styles.cycleNavButtonText}>Next ›</Text>
+      </Pressable>
     </View>
   );
 }
@@ -131,10 +182,23 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginBottom: 4,
   },
+  cycleNavRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  cycleNavButton: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  cycleNavButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
   cycleRange: {
     fontSize: 14,
     color: "#666",
-    marginBottom: 4,
   },
   cycleTotal: {
     fontSize: 20,
