@@ -178,6 +178,22 @@ Increment 27 wires the More tab (`apps/mobile/app/(tabs)/more.tsx`) to live data
 no archived-account filtering/styling — all deliberately out of scope, same "read-only display
 first" pattern every other tab followed. Only Reports remains as a `PlaceholderScreen` stub.
 
+Increment 28 begins the Reporting thread — the topmost layer in this codebase's one-directional
+layering (Reporting → Domain → Ledger Core → Reference), previously empty. Its directory,
+`apps/server/src/reporting/**`, was already mapped in `packages/config/eslint.config.mjs`'s
+`eslint-plugin-boundaries` config (allowed to import Domain/Ledger Core/Reference/money) but had no
+files until now. `buildCategorySpendingReport`
+(`apps/server/src/reporting/category-spending.ts`) is the pure aggregator behind
+`req/what-i-want.txt`'s "spending per category per month vs income per month" report: sums
+transaction amounts per non-income category (only categories with a contributing transaction are
+listed, sorted by id) and separately across income categories, for a given `BudgetPeriod`.
+Transactions with `categoryId: null` (e.g. envelope allocations from `applyBudgetLine`) or an
+unresolvable `categoryId` are silently skipped — this is a pure aggregator, not a validator.
+Totals stay signed per the existing `Transaction.amount` convention (a spending category's total
+is typically negative; no flip to an absolute "amount spent" figure). No server router or UI
+wiring yet — mirrors how the Budget thread started with pure domain logic before any server/UI
+work.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
