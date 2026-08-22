@@ -350,6 +350,28 @@ Spendable envelope never reaches this screen's `SubEnvelopeRow` (already filtere
 the last piece of the "Envelope CRUD" thread (`req/what-i-want.txt`'s "envelope crud"/"sub-envelope
 crud").
 
+Increment 43 begins a new "real database" thread: `packages/db` (`@gastos/db`) is a new,
+server-only workspace package holding a Drizzle ORM schema (10 tables covering the Reference/
+Ledger Core/Domain layers) plus a lazy-connecting Postgres client factory (`createDbClient`) and
+`drizzle-kit` migration tooling, backed by a root `docker-compose.yml` for local Postgres. This is
+pure infrastructure — nothing in `apps/server` consumes it yet; `store.ts`'s in-memory arrays are
+still the only thing any router reads from. Deliberately kept OUT of `packages/shared` (despite
+that package's original Increment-1 placeholder description mentioning "Drizzle types," now
+corrected) since `packages/shared` is also bundled into `apps/mobile` via Metro, and this repo has
+twice already been bitten by Metro breaking on an incompatible transitive dependency — `packages/db`
+is a dependency of `apps/server` only. Column types mirror the branded domain types directly
+(branded ids → `text`, `Cents` → `integer`, date strings → `date`); `SubEnvelope.accountIds`
+becomes a join table (`sub_envelope_accounts`) since each entry is itself a foreign key, whereas
+`PaydaySchedule.paydayDaysOfMonth` uses a native Postgres integer array (no foreign keys involved,
+a fixed-shape config value); `CardPurchase`'s `FundingSource` discriminated union is flattened into
+`fundingSourceKind` (`NOT NULL`, always one of `"account"`/`"envelope"`/`"none"`) plus two nullable
+variant-specific id columns. Testcontainers-based integration tests exist
+(`packages/db/src/schema/schema.integration.test.ts`) but are `describe.skip`-marked — Docker is
+not installed in this development environment — plus a real, runnable unit test for the client
+factory exploiting the `postgres` driver's lazy-connect behavior. The next increments in this
+thread: wiring a live Postgres connection into `apps/server` and swapping `store.ts`'s in-memory
+functions over to real Drizzle queries, one layer at a time (Reference first).
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
@@ -521,7 +543,7 @@ packages/config     Shared ESLint (flat config), Prettier, and Knip config.
 - Lint enforces `no-explicit-any` (error), `no-non-null-assertion` (error), `complexity` capped at
   10, and `max-lines-per-function` capped at 60 (see `packages/config/eslint.config.mjs`).
 - Package scope is `@gastos/*` (`@gastos/shared`, `@gastos/config`, `@gastos/server`,
-  `@gastos/mobile`).
+  `@gastos/mobile`, `@gastos/db`).
 - **Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/)**
   (`feat:`, `fix:`, `chore:`, `docs:`, `test:`, `refactor:`, etc.).
 - **Once an increment's exit criteria are verified (lint/typecheck/build/test clean),
@@ -535,5 +557,6 @@ packages/config     Shared ESLint (flat config), Prettier, and Knip config.
 The target architecture (accounts, envelopes, ledger, credit-card cycles, budget periods,
 reporting) is documented in `req/accounts-xls-hld.md` — read §3 (Target Architecture) and §4
 (Module Map) before implementing domain logic. `req/what-i-want.txt` has the original informal
-feature list. Neither the database schema nor any domain module exists yet; this file will grow
+feature list. A Postgres/Drizzle schema now exists (`packages/db`, Increment 43) but is not yet
+wired into `apps/server` — the in-memory store is still authoritative; this file will grow
 conventions as each increment lands.
