@@ -68,10 +68,10 @@ function CategoriesSection({ categories }: { categories: readonly Category[] }) 
 }
 
 /**
- * One `Account` row: read-only display plus an "Edit" control that reveals
- * pre-filled `AccountEditFields`, mirroring `AddAccountForm`'s split.
+ * `AccountRow`'s name/currency edit state and `updateAccount` mutation — split
+ * into its own hook so `AccountRow` itself stays under the line/complexity caps.
  */
-function AccountRow({ account }: { account: Account }) {
+function useAccountEdit(account: Account) {
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState(account.name);
   const [currency, setCurrency] = useState<string>(account.currency);
@@ -103,32 +103,120 @@ function AccountRow({ account }: { account: Account }) {
     updateAccount.mutate({ id: account.id, name: name.trim(), currency });
   }
 
-  if (!isEditing) {
+  return { isEditing, name, currency, setName, setCurrency, updateAccount, startEdit, cancelEdit, handleSave };
+}
+
+/**
+ * `AccountRow`'s Archive/Unarchive state and mutations — split into its own
+ * hook so `AccountRow` itself stays under the line/complexity caps.
+ */
+function useAccountArchive(account: Account) {
+  const utils = trpc.useUtils();
+  const archiveAccount = trpc.reference.archiveAccount.useMutation({
+    onSuccess: () => void utils.reference.accounts.invalidate(),
+  });
+  const unarchiveAccount = trpc.reference.unarchiveAccount.useMutation({
+    onSuccess: () => void utils.reference.accounts.invalidate(),
+  });
+
+  function toggleArchive() {
+    if (account.isArchived) {
+      unarchiveAccount.mutate({ id: account.id });
+    } else {
+      archiveAccount.mutate({ id: account.id });
+    }
+  }
+
+  return {
+    toggleArchive,
+    isPending: archiveAccount.isPending || unarchiveAccount.isPending,
+    isError: archiveAccount.isError || unarchiveAccount.isError,
+  };
+}
+
+/**
+ * One `Account` row: read-only display plus an "Edit" control that reveals
+ * pre-filled `AccountEditFields`, mirroring `AddAccountForm`'s split. Also
+ * offers an Archive/Unarchive toggle alongside the display.
+ */
+function AccountRow({ account }: { account: Account }) {
+  const edit = useAccountEdit(account);
+  const archive = useAccountArchive(account);
+
+  if (!edit.isEditing) {
     return (
-      <View style={styles.row}>
-        <View>
-          <Text style={styles.rowName}>{account.name}</Text>
-          <Text style={styles.rowDetail}>{account.currency}</Text>
-        </View>
-        <Pressable style={styles.editButton} onPress={startEdit}>
-          <Text style={styles.editButtonText}>Edit</Text>
-        </Pressable>
-      </View>
+      <AccountRowDisplay
+        account={account}
+        onEdit={edit.startEdit}
+        onToggleArchive={archive.toggleArchive}
+        isArchivePending={archive.isPending}
+        isArchiveError={archive.isError}
+      />
     );
   }
 
   return (
     <AccountEditFields
-      name={name}
-      currency={currency}
-      canSave={name.trim().length > 0 && isValidCurrency(currency)}
-      isPending={updateAccount.isPending}
-      isError={updateAccount.isError}
-      onNameChange={setName}
-      onCurrencyChange={(text) => setCurrency(text.toUpperCase())}
-      onCancel={cancelEdit}
-      onSave={handleSave}
+      name={edit.name}
+      currency={edit.currency}
+      canSave={edit.name.trim().length > 0 && isValidCurrency(edit.currency)}
+      isPending={edit.updateAccount.isPending}
+      isError={edit.updateAccount.isError}
+      onNameChange={edit.setName}
+      onCurrencyChange={(text) => edit.setCurrency(text.toUpperCase())}
+      onCancel={edit.cancelEdit}
+      onSave={edit.handleSave}
     />
+  );
+}
+
+/**
+ * `AccountRow`'s non-editing display: name/currency (with an "(archived)" suffix
+ * when applicable) plus Edit and Archive/Unarchive controls — split out to keep
+ * `AccountRow` under the line/complexity caps.
+ */
+function AccountRowDisplay(props: {
+  account: Account;
+  onEdit: () => void;
+  onToggleArchive: () => void;
+  isArchivePending: boolean;
+  isArchiveError: boolean;
+}) {
+  const { account } = props;
+  const archiveLabel = account.isArchived ? "Unarchive" : "Archive";
+  return (
+    <View>
+      <View style={styles.row}>
+        <View>
+          <Text style={styles.rowName}>{account.name}</Text>
+          <Text style={styles.rowDetail}>
+            {account.currency}
+            {account.isArchived ? " (archived)" : ""}
+          </Text>
+        </View>
+        <View style={styles.rowButtons}>
+          <Pressable
+            style={styles.editButton}
+            disabled={props.isArchivePending}
+            onPress={props.onEdit}
+          >
+            <Text style={styles.editButtonText}>Edit</Text>
+          </Pressable>
+          <Pressable
+            style={styles.editButton}
+            disabled={props.isArchivePending}
+            onPress={props.onToggleArchive}
+          >
+            <Text style={styles.editButtonText}>
+              {props.isArchivePending ? "…" : archiveLabel}
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+      {props.isArchiveError && (
+        <Text style={[styles.error, styles.rowError]}>Couldn&apos;t update — try again.</Text>
+      )}
+    </View>
   );
 }
 
@@ -180,10 +268,11 @@ function AccountEditFields(props: {
 }
 
 /**
- * One `Category` row: read-only display plus an "Edit" control that reveals
- * pre-filled `CategoryEditFields`, mirroring `AddCategoryForm`'s split.
+ * `CategoryRow`'s name/isIncome edit state and `updateCategory` mutation —
+ * split into its own hook so `CategoryRow` itself stays under the
+ * line/complexity caps.
  */
-function CategoryRow({ category }: { category: Category }) {
+function useCategoryEdit(category: Category) {
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState(category.name);
   const [isIncome, setIsIncome] = useState(category.isIncome);
@@ -213,32 +302,161 @@ function CategoryRow({ category }: { category: Category }) {
     updateCategory.mutate({ id: category.id, name: name.trim(), isIncome });
   }
 
-  if (!isEditing) {
+  return { isEditing, name, isIncome, setName, setIsIncome, updateCategory, startEdit, cancelEdit, handleSave };
+}
+
+/**
+ * `CategoryRow`'s delete-confirmation state and `deleteCategory` mutation —
+ * split into its own hook so `CategoryRow` itself stays under the
+ * line/complexity caps.
+ */
+function useCategoryDelete(category: Category) {
+  const [isConfirming, setIsConfirming] = useState(false);
+  const utils = trpc.useUtils();
+  const deleteCategory = trpc.reference.deleteCategory.useMutation({
+    onSuccess: () => void utils.reference.categories.invalidate(),
+  });
+
+  function startDelete() {
+    deleteCategory.reset();
+    setIsConfirming(true);
+  }
+
+  function cancelDelete() {
+    deleteCategory.reset();
+    setIsConfirming(false);
+  }
+
+  function confirmDelete() {
+    deleteCategory.mutate({ id: category.id });
+  }
+
+  const errorMessage = deleteCategory.isError
+    ? deleteCategory.error?.message || "Couldn't delete — try again."
+    : undefined;
+
+  return {
+    isConfirming,
+    isPending: deleteCategory.isPending,
+    errorMessage,
+    startDelete,
+    cancelDelete,
+    confirmDelete,
+  };
+}
+
+/**
+ * One `Category` row: read-only display plus an "Edit" control that reveals
+ * pre-filled `CategoryEditFields`, mirroring `AddCategoryForm`'s split. Also
+ * offers a Delete control with an inline confirmation step.
+ */
+function CategoryRow({ category }: { category: Category }) {
+  const edit = useCategoryEdit(category);
+  const del = useCategoryDelete(category);
+
+  if (edit.isEditing) {
     return (
+      <CategoryEditFields
+        name={edit.name}
+        isIncome={edit.isIncome}
+        canSave={edit.name.trim().length > 0}
+        isPending={edit.updateCategory.isPending}
+        isError={edit.updateCategory.isError}
+        onNameChange={edit.setName}
+        onToggleIsIncome={() => edit.setIsIncome((current) => !current)}
+        onCancel={edit.cancelEdit}
+        onSave={edit.handleSave}
+      />
+    );
+  }
+
+  return (
+    <CategoryRowDisplay
+      category={category}
+      isConfirmingDelete={del.isConfirming}
+      isDeletePending={del.isPending}
+      deleteErrorMessage={del.errorMessage}
+      onEdit={edit.startEdit}
+      onStartDelete={del.startDelete}
+      onCancelDelete={del.cancelDelete}
+      onConfirmDelete={del.confirmDelete}
+    />
+  );
+}
+
+/**
+ * `CategoryRow`'s non-editing display: name plus Edit and Delete controls, the
+ * latter revealing an inline confirmation — split out to keep `CategoryRow`
+ * under the line/complexity caps.
+ */
+function CategoryRowDisplay(props: {
+  category: Category;
+  isConfirmingDelete: boolean;
+  isDeletePending: boolean;
+  deleteErrorMessage: string | undefined;
+  onEdit: () => void;
+  onStartDelete: () => void;
+  onCancelDelete: () => void;
+  onConfirmDelete: () => void;
+}) {
+  const { category } = props;
+  const rowActionsDisabled = props.isConfirmingDelete || props.isDeletePending;
+  return (
+    <View>
       <View style={styles.row}>
         <Text style={styles.rowName}>
           {category.name}
           {category.isIncome ? " (income)" : ""}
         </Text>
-        <Pressable style={styles.editButton} onPress={startEdit}>
-          <Text style={styles.editButtonText}>Edit</Text>
+        <View style={styles.rowButtons}>
+          <Pressable style={styles.editButton} disabled={rowActionsDisabled} onPress={props.onEdit}>
+            <Text style={styles.editButtonText}>Edit</Text>
+          </Pressable>
+          <Pressable
+            style={styles.editButton}
+            disabled={rowActionsDisabled}
+            onPress={props.onStartDelete}
+          >
+            <Text style={styles.editButtonText}>Delete</Text>
+          </Pressable>
+        </View>
+      </View>
+      {props.isConfirmingDelete && (
+        <CategoryDeleteConfirm
+          isPending={props.isDeletePending}
+          errorMessage={props.deleteErrorMessage}
+          onCancel={props.onCancelDelete}
+          onConfirm={props.onConfirmDelete}
+        />
+      )}
+    </View>
+  );
+}
+
+/**
+ * Inline "Delete this category?" confirmation revealed by `CategoryRowDisplay`'s
+ * Delete button — shows the mutation's server-provided error message (e.g. "still
+ * in use") when the delete fails, and stays open on error so the user can read it.
+ */
+function CategoryDeleteConfirm(props: {
+  isPending: boolean;
+  errorMessage: string | undefined;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <View style={styles.form}>
+      <Text>Delete this category?</Text>
+      {props.errorMessage !== undefined && <Text style={styles.error}>{props.errorMessage}</Text>}
+      <View style={styles.formButtons}>
+        <Pressable style={styles.formButton} disabled={props.isPending} onPress={props.onCancel}>
+          <Text>Cancel</Text>
+        </Pressable>
+        <Pressable style={styles.formButton} disabled={props.isPending} onPress={props.onConfirm}>
+          <Text>{props.isPending ? "Deleting…" : "Confirm"}</Text>
         </Pressable>
       </View>
-    );
-  }
-
-  return (
-    <CategoryEditFields
-      name={name}
-      isIncome={isIncome}
-      canSave={name.trim().length > 0}
-      isPending={updateCategory.isPending}
-      isError={updateCategory.isError}
-      onNameChange={setName}
-      onToggleIsIncome={() => setIsIncome((current) => !current)}
-      onCancel={cancelEdit}
-      onSave={handleSave}
-    />
+    </View>
   );
 }
 
@@ -523,6 +741,13 @@ const styles = StyleSheet.create({
   rowDetail: {
     fontSize: 14,
     color: "#666",
+  },
+  rowButtons: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  rowError: {
+    paddingLeft: 12,
   },
   addButton: {
     marginTop: 8,

@@ -21,6 +21,15 @@ jest.mock("../../lib/trpc", () => ({
       updateCategory: {
         useMutation: jest.fn(),
       },
+      archiveAccount: {
+        useMutation: jest.fn(),
+      },
+      unarchiveAccount: {
+        useMutation: jest.fn(),
+      },
+      deleteCategory: {
+        useMutation: jest.fn(),
+      },
     },
     useUtils: jest.fn(),
   },
@@ -30,6 +39,7 @@ import {
   type Account,
   type Category,
   accountIdFromString,
+  archiveAccount,
   categoryIdFromString,
   createAccount,
   createCategory,
@@ -72,6 +82,37 @@ const mockUpdateAccountUseMutation = trpc.reference.updateAccount
   .useMutation as unknown as jest.Mock<MockMutationResult>;
 const mockUpdateCategoryUseMutation = trpc.reference.updateCategory
   .useMutation as unknown as jest.Mock<MockMutationResult>;
+const mockArchiveAccountUseMutation = trpc.reference.archiveAccount
+  .useMutation as unknown as jest.Mock<MockMutationResult>;
+const mockUnarchiveAccountUseMutation = trpc.reference.unarchiveAccount
+  .useMutation as unknown as jest.Mock<MockMutationResult>;
+
+// `deleteCategory` is read for `.error?.message` (not just `isError`), so it
+// gets its own mock-result shape rather than reusing `MockMutationResult`.
+interface MockDeleteMutationResult {
+  mutate: jest.Mock;
+  isPending: boolean;
+  isError: boolean;
+  error: { message: string } | undefined;
+  reset: jest.Mock;
+}
+
+const mockDeleteCategoryUseMutation = trpc.reference.deleteCategory
+  .useMutation as unknown as jest.Mock<MockDeleteMutationResult>;
+
+function mockDeleteMutationResult(
+  overrides: Partial<MockDeleteMutationResult> = {},
+): MockDeleteMutationResult {
+  return {
+    mutate: jest.fn(),
+    isPending: false,
+    isError: false,
+    error: undefined,
+    reset: jest.fn(),
+    ...overrides,
+  };
+}
+
 const mockUseUtils = trpc.useUtils as unknown as jest.Mock<{
   reference: {
     accounts: { invalidate: jest.Mock };
@@ -111,6 +152,9 @@ beforeEach(() => {
   mockCreateCategoryUseMutation.mockReturnValue(mockMutationResult());
   mockUpdateAccountUseMutation.mockReturnValue(mockMutationResult());
   mockUpdateCategoryUseMutation.mockReturnValue(mockMutationResult());
+  mockArchiveAccountUseMutation.mockReturnValue(mockMutationResult());
+  mockUnarchiveAccountUseMutation.mockReturnValue(mockMutationResult());
+  mockDeleteCategoryUseMutation.mockReturnValue(mockDeleteMutationResult());
   mockUseUtils.mockReturnValue({
     reference: {
       accounts: { invalidate: jest.fn() },
@@ -126,6 +170,9 @@ afterEach(() => {
   mockCreateCategoryUseMutation.mockReset();
   mockUpdateAccountUseMutation.mockReset();
   mockUpdateCategoryUseMutation.mockReset();
+  mockArchiveAccountUseMutation.mockReset();
+  mockUnarchiveAccountUseMutation.mockReset();
+  mockDeleteCategoryUseMutation.mockReset();
   mockUseUtils.mockReset();
 });
 
@@ -644,5 +691,189 @@ describe("CategoryRow save", () => {
 
     expect(screen.getByText("Couldn't save — try again.")).toBeTruthy();
     expect(screen.getByDisplayValue("Salary")).toBeTruthy();
+  });
+});
+
+const archivedChecking: Account = archiveAccount(checking);
+
+describe("AccountRow Archive/Unarchive label", () => {
+  it("shows Archive for a non-archived account", async () => {
+    await renderMoreScreenWithData([checking], []);
+
+    expect(screen.getByText("Archive")).toBeTruthy();
+    expect(screen.queryByText("Unarchive")).toBeNull();
+  });
+
+  it("shows Unarchive for an archived account", async () => {
+    await renderMoreScreenWithData([archivedChecking], []);
+
+    expect(screen.getByText("Unarchive")).toBeTruthy();
+    expect(screen.queryByText("Archive")).toBeNull();
+  });
+});
+
+describe("AccountRow Archive/Unarchive submission", () => {
+  it("tapping Archive on a non-archived account calls archiveAccount.mutate, not unarchiveAccount", async () => {
+    const archiveMutate = jest.fn();
+    const unarchiveMutate = jest.fn();
+    mockArchiveAccountUseMutation.mockReturnValue(
+      mockMutationResult({ mutate: archiveMutate }),
+    );
+    mockUnarchiveAccountUseMutation.mockReturnValue(
+      mockMutationResult({ mutate: unarchiveMutate }),
+    );
+    await renderMoreScreenWithData([checking], []);
+
+    await fireEvent.press(screen.getByText("Archive"));
+
+    expect(archiveMutate).toHaveBeenCalledTimes(1);
+    expect(archiveMutate).toHaveBeenCalledWith({ id: checking.id });
+    expect(unarchiveMutate).not.toHaveBeenCalled();
+  });
+
+  it("tapping Unarchive on an archived account calls unarchiveAccount.mutate, not archiveAccount", async () => {
+    const archiveMutate = jest.fn();
+    const unarchiveMutate = jest.fn();
+    mockArchiveAccountUseMutation.mockReturnValue(
+      mockMutationResult({ mutate: archiveMutate }),
+    );
+    mockUnarchiveAccountUseMutation.mockReturnValue(
+      mockMutationResult({ mutate: unarchiveMutate }),
+    );
+    await renderMoreScreenWithData([archivedChecking], []);
+
+    await fireEvent.press(screen.getByText("Unarchive"));
+
+    expect(unarchiveMutate).toHaveBeenCalledTimes(1);
+    expect(unarchiveMutate).toHaveBeenCalledWith({ id: archivedChecking.id });
+    expect(archiveMutate).not.toHaveBeenCalled();
+  });
+});
+
+describe("AccountRow archived display suffix", () => {
+  it("appends (archived) to the currency text for an archived account", async () => {
+    await renderMoreScreenWithData([archivedChecking], []);
+
+    expect(screen.getByText("USD (archived)")).toBeTruthy();
+    expect(screen.queryByText("USD")).toBeNull();
+  });
+
+  it("does not append (archived) for a non-archived account", async () => {
+    await renderMoreScreenWithData([checking], []);
+
+    expect(screen.getByText("USD")).toBeTruthy();
+    expect(screen.queryByText("USD (archived)")).toBeNull();
+  });
+});
+
+describe("AccountRow Archive/Unarchive error state", () => {
+  it("shows the inline update error message when the archive mutation errors", async () => {
+    mockArchiveAccountUseMutation.mockReturnValue(
+      mockMutationResult({ isError: true }),
+    );
+    await renderMoreScreenWithData([checking], []);
+
+    expect(screen.getByText("Couldn't update — try again.")).toBeTruthy();
+  });
+});
+
+describe("CategoryRow Delete confirmation flow", () => {
+  it("tapping Delete reveals the confirmation panel without calling deleteCategory.mutate", async () => {
+    const mutate = jest.fn();
+    mockDeleteCategoryUseMutation.mockReturnValue(
+      mockDeleteMutationResult({ mutate }),
+    );
+    await renderMoreScreenWithData([], [groceriesCategory]);
+
+    await fireEvent.press(screen.getByText("Delete"));
+
+    expect(screen.getByText("Delete this category?")).toBeTruthy();
+    expect(screen.getByText("Cancel")).toBeTruthy();
+    expect(screen.getByText("Confirm")).toBeTruthy();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it("tapping Cancel in the confirmation hides it without calling deleteCategory.mutate", async () => {
+    const mutate = jest.fn();
+    mockDeleteCategoryUseMutation.mockReturnValue(
+      mockDeleteMutationResult({ mutate }),
+    );
+    await renderMoreScreenWithData([], [groceriesCategory]);
+
+    await fireEvent.press(screen.getByText("Delete"));
+    await fireEvent.press(screen.getByText("Cancel"));
+
+    expect(screen.queryByText("Delete this category?")).toBeNull();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it("tapping Confirm calls deleteCategory.mutate with the category's id", async () => {
+    const mutate = jest.fn();
+    mockDeleteCategoryUseMutation.mockReturnValue(
+      mockDeleteMutationResult({ mutate }),
+    );
+    await renderMoreScreenWithData([], [groceriesCategory]);
+
+    await fireEvent.press(screen.getByText("Delete"));
+    await fireEvent.press(screen.getByText("Confirm"));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate).toHaveBeenCalledWith({ id: groceriesCategory.id });
+  });
+
+  it("shows Deleting… and disables controls while the delete mutation is pending", async () => {
+    // The Delete button itself is disabled once the mutation is pending, so
+    // the confirmation panel must be opened first (mutation not yet
+    // pending), then the mock is swapped to a pending result and the tree
+    // re-rendered — same instance, so `isConfirming` state survives.
+    mockAccountsUseQuery.mockReturnValue(success([]));
+    mockCategoriesUseQuery.mockReturnValue(success([groceriesCategory]));
+    mockDeleteCategoryUseMutation.mockReturnValue(mockDeleteMutationResult());
+    const { rerender } = await render(<MoreScreen />);
+
+    await fireEvent.press(screen.getByText("Delete"));
+    expect(screen.getByText("Confirm")).toBeTruthy();
+
+    mockDeleteCategoryUseMutation.mockReturnValue(
+      mockDeleteMutationResult({ isPending: true }),
+    );
+    await rerender(<MoreScreen />);
+
+    expect(screen.getByText("Deleting…")).toBeTruthy();
+    expect(screen.queryByText("Confirm")).toBeNull();
+    expect(screen.getByText("Deleting…")).toBeDisabled();
+    expect(screen.getByText("Cancel")).toBeDisabled();
+  });
+});
+
+describe("CategoryRow Delete confirmation error message", () => {
+  it("renders the mutation's specific error message when one is provided", async () => {
+    mockDeleteCategoryUseMutation.mockReturnValue(
+      mockDeleteMutationResult({
+        isError: true,
+        error: { message: 'Category "cat-x" is still in use and cannot be deleted' },
+      }),
+    );
+    await renderMoreScreenWithData([], [groceriesCategory]);
+
+    await fireEvent.press(screen.getByText("Delete"));
+
+    expect(
+      screen.getByText('Category "cat-x" is still in use and cannot be deleted'),
+    ).toBeTruthy();
+    expect(screen.queryByText("Couldn't delete — try again.")).toBeNull();
+    // The confirmation panel stays open on error.
+    expect(screen.getByText("Delete this category?")).toBeTruthy();
+  });
+
+  it("falls back to the generic message when the mutation error has no message", async () => {
+    mockDeleteCategoryUseMutation.mockReturnValue(
+      mockDeleteMutationResult({ isError: true, error: { message: "" } }),
+    );
+    await renderMoreScreenWithData([], [groceriesCategory]);
+
+    await fireEvent.press(screen.getByText("Delete"));
+
+    expect(screen.getByText("Couldn't delete — try again.")).toBeTruthy();
   });
 });
