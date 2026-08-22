@@ -52,7 +52,7 @@ const savingsAccount: Account = createAccount({
   currency: PHP,
 });
 
-const accounts: readonly Account[] = [checkingAccount, savingsAccount];
+const accounts: Account[] = [checkingAccount, savingsAccount];
 
 const incomeCategory: Category = createCategory({
   id: categoryIdFromString("category-income"),
@@ -70,7 +70,7 @@ const transportCategory: Category = createCategory({
   name: "Transport",
 });
 
-const categories: readonly Category[] = [incomeCategory, groceriesCategory, transportCategory];
+const categories: Category[] = [incomeCategory, groceriesCategory, transportCategory];
 
 const everydayGroup: EnvelopeGroup = createEnvelopeGroup({
   id: envelopeGroupIdFromString("envelope-group-everyday"),
@@ -214,6 +214,16 @@ export function getAccounts(): readonly Account[] {
 /** Returns the seeded categories. */
 export function getCategories(): readonly Category[] {
   return categories;
+}
+
+/** Appends `account` to the in-memory store. */
+export function addAccount(account: Account): void {
+  accounts.push(account);
+}
+
+/** Appends `category` to the in-memory store. */
+export function addCategory(category: Category): void {
+  categories.push(category);
 }
 
 /** Returns the seeded envelope groups. */
