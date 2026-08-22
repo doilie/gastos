@@ -292,6 +292,15 @@ which does its own non-empty-name/no-duplicate-`accountIds`/reserved-Spendable-i
 Archive/Delete for envelopes are separate, later, not-yet-scoped increments — same sequencing as
 Account/Category followed. No UI wiring yet. Live-verified via curl.
 
+Increment 38 wires that UI: the Envelopes tab (`apps/mobile/app/(tabs)/envelopes.tsx`) gets a
+top-level "+ Add group" form and a per-group "+ Add sub-envelope" form (the enclosing
+`EnvelopeGroupSection` supplies `groupId` implicitly — no group picker needed), mirroring the More
+tab's "+ Add" pattern. Since `createSubEnvelope` requires a non-empty `accountIds`, its form adds
+an `AccountMultiSelect` — one `Pressable` row per `Account` (a new query this screen didn't
+previously make), tapping toggles membership in a local selected set (marked with a "✓ " prefix),
+unlike `budget.tsx`'s single-select `AccountPicker` which closes on pick. Update and
+Archive/Delete for envelopes remain separate, later, not-yet-scoped increments.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
