@@ -372,6 +372,21 @@ factory exploiting the `postgres` driver's lazy-connect behavior. The next incre
 thread: wiring a live Postgres connection into `apps/server` and swapping `store.ts`'s in-memory
 functions over to real Drizzle queries, one layer at a time (Reference first).
 
+Increment 44 begins a "Cards tab" enhancement thread with billing-cycle drilldown: the Cards tab
+(`apps/mobile/app/(tabs)/cards.tsx`) previously always showed the cycle containing today, with no
+navigation. `CreditCardSection` now holds local `referenceDate` state (defaulting to today) and
+computes its displayed cycle from that instead — a new `CycleNavigation` sub-component adds "‹
+Prev"/"Next ›" controls, using a new `shiftLedgerDateByDays` helper to jump to one day before/after
+the currently-displayed cycle's start/end (always landing in the adjacent cycle, since cycles are
+contiguous and non-overlapping). "Next ›" disables itself whenever the displayed cycle already
+contains the real today — there's nothing further forward to show. This is a UI-only change; no
+server/router changes were needed since the cycle math (`cardCycleContaining`) is already a pure
+client-callable function of `(cutoffDay, anyReferenceDate)`. Settling a single purchase
+(`cards.settleCardPurchase`, wrapping the existing `settleCardPurchase` domain function) and
+settling a whole cycle (`cards.settleCardCycle`) are the next, separate increments in this
+thread — both need new `cards` router mutations that don't exist yet (today's `cards` router is
+entirely read-only).
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
