@@ -1,7 +1,11 @@
 import type { Account, Category } from "@gastos/shared";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { trpc } from "../../lib/trpc";
+
+/** Matches exactly 3 uppercase letters, e.g. "USD", "PHP". */
+const CURRENCY_SHAPE = /^[A-Z]{3}$/;
 
 /**
  * More tab: read-only display of `Account`s and `Category`s. No settings, no
@@ -37,7 +41,7 @@ export default function MoreScreen() {
   );
 }
 
-/** Renders the "Accounts" section: one row per `Account`. */
+/** Renders the "Accounts" section: one row per `Account`, plus an "+ Add account" form. */
 function AccountsSection({ accounts }: { accounts: readonly Account[] }) {
   return (
     <View style={styles.section}>
@@ -48,11 +52,12 @@ function AccountsSection({ accounts }: { accounts: readonly Account[] }) {
           <Text style={styles.rowDetail}>{account.currency}</Text>
         </View>
       ))}
+      <AddAccountForm />
     </View>
   );
 }
 
-/** Renders the "Categories" section: one row per `Category`. */
+/** Renders the "Categories" section: one row per `Category`, plus an "+ Add category" form. */
 function CategoriesSection({ categories }: { categories: readonly Category[] }) {
   return (
     <View style={styles.section}>
@@ -65,6 +70,206 @@ function CategoriesSection({ categories }: { categories: readonly Category[] }) 
           </Text>
         </View>
       ))}
+      <AddCategoryForm />
+    </View>
+  );
+}
+
+function isValidCurrency(currency: string): boolean {
+  return CURRENCY_SHAPE.test(currency);
+}
+
+/**
+ * Inline "+ Add account" form: collapsed to a single button until tapped,
+ * mirroring `QuickAddForm`'s interaction pattern.
+ */
+function AddAccountForm() {
+  const [isOpen, setIsOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [currency, setCurrency] = useState("");
+  const utils = trpc.useUtils();
+  const createAccount = trpc.reference.createAccount.useMutation({
+    onSuccess: () => {
+      void utils.reference.accounts.invalidate();
+      closeForm();
+    },
+  });
+
+  function closeForm() {
+    setIsOpen(false);
+    setName("");
+    setCurrency("");
+    createAccount.reset();
+  }
+
+  function handleSave() {
+    createAccount.mutate({ name: name.trim(), currency });
+  }
+
+  if (!isOpen) {
+    return (
+      <Pressable style={styles.addButton} onPress={() => setIsOpen(true)}>
+        <Text style={styles.addButtonText}>+ Add account</Text>
+      </Pressable>
+    );
+  }
+
+  const canSave = name.trim().length > 0 && isValidCurrency(currency);
+  return (
+    <AddAccountFields
+      name={name}
+      currency={currency}
+      canSave={canSave}
+      isPending={createAccount.isPending}
+      isError={createAccount.isError}
+      onNameChange={setName}
+      onCurrencyChange={(text) => setCurrency(text.toUpperCase())}
+      onCancel={closeForm}
+      onSave={handleSave}
+    />
+  );
+}
+
+/** The revealed `AddAccountForm`'s inputs/controls — split out to keep the parent under the line/complexity caps. */
+function AddAccountFields(props: {
+  name: string;
+  currency: string;
+  canSave: boolean;
+  isPending: boolean;
+  isError: boolean;
+  onNameChange: (value: string) => void;
+  onCurrencyChange: (value: string) => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  const disabled = props.isPending;
+  return (
+    <View style={styles.form}>
+      <TextInput
+        style={styles.input}
+        placeholder="Name"
+        value={props.name}
+        editable={!disabled}
+        onChangeText={props.onNameChange}
+      />
+      <TextInput
+        style={styles.input}
+        placeholder="Currency (e.g. USD)"
+        autoCapitalize="characters"
+        value={props.currency}
+        editable={!disabled}
+        onChangeText={props.onCurrencyChange}
+      />
+      {props.isError && <Text style={styles.error}>Couldn&apos;t save — try again.</Text>}
+      <View style={styles.formButtons}>
+        <Pressable style={styles.formButton} disabled={disabled} onPress={props.onCancel}>
+          <Text>Cancel</Text>
+        </Pressable>
+        <Pressable
+          style={styles.formButton}
+          disabled={disabled || !props.canSave}
+          onPress={props.onSave}
+        >
+          <Text>{props.isPending ? "Saving…" : "Save"}</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+/**
+ * Inline "+ Add category" form: collapsed to a single button until tapped,
+ * mirroring `QuickAddForm`'s interaction pattern. The income/expense toggle
+ * is a plain `Pressable` (no `Switch` — not used elsewhere in this codebase).
+ */
+function AddCategoryForm() {
+  const [isOpen, setIsOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [isIncome, setIsIncome] = useState(false);
+  const utils = trpc.useUtils();
+  const createCategory = trpc.reference.createCategory.useMutation({
+    onSuccess: () => {
+      void utils.reference.categories.invalidate();
+      closeForm();
+    },
+  });
+
+  function closeForm() {
+    setIsOpen(false);
+    setName("");
+    setIsIncome(false);
+    createCategory.reset();
+  }
+
+  function handleSave() {
+    createCategory.mutate({ name: name.trim(), isIncome });
+  }
+
+  if (!isOpen) {
+    return (
+      <Pressable style={styles.addButton} onPress={() => setIsOpen(true)}>
+        <Text style={styles.addButtonText}>+ Add category</Text>
+      </Pressable>
+    );
+  }
+
+  return (
+    <AddCategoryFields
+      name={name}
+      isIncome={isIncome}
+      canSave={name.trim().length > 0}
+      isPending={createCategory.isPending}
+      isError={createCategory.isError}
+      onNameChange={setName}
+      onToggleIsIncome={() => setIsIncome((current) => !current)}
+      onCancel={closeForm}
+      onSave={handleSave}
+    />
+  );
+}
+
+/** The revealed `AddCategoryForm`'s inputs/controls — split out to keep the parent under the line/complexity caps. */
+function AddCategoryFields(props: {
+  name: string;
+  isIncome: boolean;
+  canSave: boolean;
+  isPending: boolean;
+  isError: boolean;
+  onNameChange: (value: string) => void;
+  onToggleIsIncome: () => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  const disabled = props.isPending;
+  return (
+    <View style={styles.form}>
+      <TextInput
+        style={styles.input}
+        placeholder="Name"
+        value={props.name}
+        editable={!disabled}
+        onChangeText={props.onNameChange}
+      />
+      <Pressable
+        style={styles.toggleButton}
+        disabled={disabled}
+        onPress={props.onToggleIsIncome}
+      >
+        <Text>{props.isIncome ? "Income" : "Expense"}</Text>
+      </Pressable>
+      {props.isError && <Text style={styles.error}>Couldn&apos;t save — try again.</Text>}
+      <View style={styles.formButtons}>
+        <Pressable style={styles.formButton} disabled={disabled} onPress={props.onCancel}>
+          <Text>Cancel</Text>
+        </Pressable>
+        <Pressable
+          style={styles.formButton}
+          disabled={disabled || !props.canSave}
+          onPress={props.onSave}
+        >
+          <Text>{props.isPending ? "Saving…" : "Save"}</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -105,5 +310,50 @@ const styles = StyleSheet.create({
   rowDetail: {
     fontSize: 14,
     color: "#666",
+  },
+  addButton: {
+    marginTop: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+  },
+  addButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  form: {
+    marginTop: 8,
+    width: 240,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
+    fontSize: 16,
+  },
+  toggleButton: {
+    borderWidth: 1,
+    borderColor: "#ccc",
+    borderRadius: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 8,
+    alignSelf: "flex-start",
+  },
+  formButtons: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 4,
+  },
+  formButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  error: {
+    color: "#c00",
+    marginBottom: 8,
+    fontSize: 14,
   },
 });
