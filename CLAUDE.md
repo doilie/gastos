@@ -171,6 +171,13 @@ persist past the component's lifetime (it resets on navigating away and back), a
 Apply on an already-applied line still creates a second transaction. This completes the Budget
 thread's UI. Only Reports/More remain as `PlaceholderScreen` stubs.
 
+Increment 27 wires the More tab (`apps/mobile/app/(tabs)/more.tsx`) to live data, replacing its
+`PlaceholderScreen` stub — read-only display of every `Account` (name, currency) and `Category`
+(name, with an inline `" (income)"` suffix when `isIncome`), using the existing
+`trpc.reference.accounts`/`categories` queries with no server-side changes. No settings, no CRUD,
+no archived-account filtering/styling — all deliberately out of scope, same "read-only display
+first" pattern every other tab followed. Only Reports remains as a `PlaceholderScreen` stub.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
