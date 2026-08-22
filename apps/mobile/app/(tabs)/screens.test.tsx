@@ -1,7 +1,6 @@
 import { render } from "@testing-library/react-native";
 import type { ReactElement } from "react";
 
-import MoreScreen from "./more";
 import ReportsScreen from "./reports";
 
 // Today (./index) is intentionally NOT covered here: it now calls
@@ -26,6 +25,11 @@ import ReportsScreen from "./reports";
 // trpc.reference.subEnvelopes.useQuery() and renders network-dependent
 // states instead of a static PlaceholderScreen title+subtitle. Its dedicated
 // coverage lives in ./budget.test.tsx.
+//
+// More (./more) is likewise intentionally NOT covered here: it now calls
+// trpc.reference.accounts.useQuery()/categories.useQuery() and renders
+// network-dependent states instead of a static PlaceholderScreen
+// title+subtitle. Its dedicated coverage lives in ./more.test.tsx.
 
 type ScreenCase = [
   name: string,
@@ -40,12 +44,6 @@ const cases: ScreenCase[] = [
     ReportsScreen,
     "Reports",
     "Spending and income reports — coming soon",
-  ],
-  [
-    "More",
-    MoreScreen,
-    "More",
-    "Accounts, categories, and settings — coming soon",
   ],
 ];
 
