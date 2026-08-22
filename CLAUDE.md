@@ -159,6 +159,18 @@ increment, the same pattern Today's quick-add form followed after its own initia
 wiring. This is the last of the 6 tabs to move off `PlaceholderScreen` except Reports/More, which
 have no underlying domain data yet.
 
+Increment 26 adds that follow-up: each `BudgetLineRow` now has an "Apply" control wiring
+`budget.applyBudgetLine` into the ledger. Since a `SubEnvelope` can span multiple accounts, the
+control auto-applies against the target sub-envelope's one linked account when there's exactly
+one, or reveals an inline account-name picker (`trpc.reference.accounts`) when there's more than
+one, or disables Apply when there are none — mirroring `QuickAddForm`'s collapsed-button-to-
+inline-controls pattern rather than introducing a new picker component. Success/error render as
+transient per-row status text only; per the already-documented accepted limitation that
+`applyBudgetLine` doesn't mark a line "applied" server-side, this status intentionally does not
+persist past the component's lifetime (it resets on navigating away and back), and re-tapping
+Apply on an already-applied line still creates a second transaction. This completes the Budget
+thread's UI. Only Reports/More remain as `PlaceholderScreen` stubs.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
