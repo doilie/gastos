@@ -15,6 +15,7 @@ import {
   applyBudgetLines,
   budgetLineIdFromString,
   createBudgetLine,
+  markBudgetLineApplied,
   type ApplyBudgetLineInput,
   type BudgetLine,
 } from "./budget-line";
@@ -79,6 +80,7 @@ describe("createBudgetLine", () => {
       subEnvelopeId: subEnvelopeIdFromString("sub-1"),
       amount: centsFromInt(1500),
       description: "Rent",
+      isApplied: false,
     });
   });
 
@@ -111,6 +113,21 @@ describe("createBudgetLine", () => {
     );
     expect(line.budgetPeriod).toEqual({ year: 2024, month: 5 });
     expect(line.paydayDate).toBe("2024-06-01");
+  });
+});
+
+describe("markBudgetLineApplied", () => {
+  it("sets isApplied to true, leaving every other field unchanged", () => {
+    const line = createBudgetLine(baseInput());
+    const applied = markBudgetLineApplied(line);
+    expect(applied).toEqual({ ...line, isApplied: true });
+  });
+
+  it("is idempotent — marking an already-applied line stays isApplied: true", () => {
+    const line = createBudgetLine(baseInput());
+    const applied = markBudgetLineApplied(line);
+    const appliedAgain = markBudgetLineApplied(applied);
+    expect(appliedAgain).toEqual(applied);
   });
 });
 
@@ -214,6 +231,38 @@ describe("applyBudgetLine (rejections)", () => {
   });
 });
 
+describe("applyBudgetLine (already applied)", () => {
+  it("throws the exact already-applied message, before checking fundingSubEnvelope/account validity", () => {
+    const targetSubEnvelope = createSubEnvelope({
+      id: subEnvelopeIdFromString("sub-target-applied"),
+      name: "Target Envelope Applied",
+      groupId,
+      accountIds: [accountX],
+    });
+    const unrelatedSubEnvelope = createSubEnvelope({
+      id: subEnvelopeIdFromString("sub-unrelated-applied"),
+      name: "Unrelated Envelope Applied",
+      groupId,
+      accountIds: [accountX],
+    });
+
+    const line = markBudgetLineApplied(
+      createBudgetLine(baseInput({ subEnvelopeId: targetSubEnvelope.id })),
+    );
+
+    // Deliberately pass a MISMATCHED fundingSubEnvelope (and an accountId not
+    // even a member of it) — if the already-applied check did not run first,
+    // this would throw the mismatch error instead.
+    expect(() =>
+      applyBudgetLine(line, {
+        id: transactionIdFromString("txn-already-applied"),
+        accountId: accountZ,
+        fundingSubEnvelope: unrelatedSubEnvelope,
+      }),
+    ).toThrow("applyBudgetLine: budget line is already applied");
+  });
+});
+
 describe("applyBudgetLines (empty input)", () => {
   it("returns empty results for an empty line list", () => {
     const result = applyBudgetLines([], () => null);
@@ -299,6 +348,44 @@ describe("applyBudgetLines (successful application)", () => {
       amount: 1500,
       counterTransactionId: null,
     });
+  });
+});
+
+describe("applyBudgetLines (auto-skips already-applied lines)", () => {
+  it("skips an already-applied line without calling resolveApplyInput for it", () => {
+    const sharedSubEnvelope = createSubEnvelope({
+      id: subEnvelopeIdFromString("sub-already-applied-batch"),
+      name: "Already Applied Envelope",
+      groupId,
+      accountIds: [accountX],
+    });
+
+    const alreadyApplied = markBudgetLineApplied(
+      createBudgetLine(
+        baseInput({
+          id: budgetLineIdFromString("line-already-applied"),
+          subEnvelopeId: sharedSubEnvelope.id,
+        }),
+      ),
+    );
+    const pending = createBudgetLine(
+      baseInput({ id: budgetLineIdFromString("line-pending"), subEnvelopeId: sharedSubEnvelope.id }),
+    );
+
+    const resolver = vi.fn(
+      (): ApplyBudgetLineInput => ({
+        id: transactionIdFromString("txn-pending"),
+        accountId: accountX,
+        fundingSubEnvelope: sharedSubEnvelope,
+      }),
+    );
+
+    const result = applyBudgetLines([alreadyApplied, pending], resolver);
+
+    expect(resolver).toHaveBeenCalledTimes(1);
+    expect(resolver).toHaveBeenCalledWith(pending);
+    expect(result.skippedLines).toEqual([alreadyApplied]);
+    expect(result.appliedTransactions).toHaveLength(1);
   });
 });
 

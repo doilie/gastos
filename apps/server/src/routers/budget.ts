@@ -7,6 +7,7 @@ import {
   type BudgetLine,
   type BudgetLineId,
   budgetLineIdFromString,
+  markBudgetLineApplied,
   type SubEnvelope,
   transactionIdFromString,
 } from "@gastos/shared";
@@ -21,6 +22,7 @@ import {
   getBudgetLines,
   getPaydaySchedules,
   getSubEnvelopes,
+  replaceBudgetLine,
 } from "../store";
 
 /**
@@ -105,10 +107,18 @@ function parseAndValidateApplications(
  * per seeded `BudgetLine`: lines absent from `applications` are skipped
  * (resolver returns `null`); lines present resolve to a concrete
  * `ApplyBudgetLineInput` using the caller-supplied account and the line's
- * target sub-envelope.
+ * target sub-envelope. Every line the resolver resolves (returns non-`null`
+ * for) is also pushed onto `appliedLines`, so the caller knows afterward
+ * exactly which lines the domain function actually applied (as opposed to
+ * auto-skipped for already being applied, or omitted from `applications`) —
+ * the domain function calls this resolver strictly before it calls
+ * `applyBudgetLine` for that same line, and either both succeed or the whole
+ * batch call throws without returning, so a returned result always matches
+ * `appliedLines` 1:1 with `result.appliedTransactions`.
  */
 function buildApplyResolver(
   applications: Map<BudgetLineId, AccountId>,
+  appliedLines: BudgetLine[],
 ): (line: BudgetLine) => ApplyBudgetLineInput | null {
   return (line) => {
     const accountId = applications.get(line.id);
@@ -116,6 +126,7 @@ function buildApplyResolver(
       return null;
     }
 
+    appliedLines.push(line);
     return {
       id: transactionIdFromString(randomUUID()),
       accountId,
@@ -133,6 +144,14 @@ function buildApplyResolver(
  * `settleCardCycle` "resolve per-item, report what succeeded vs. skipped"
  * pattern. Lines omitted from the batch call's `applications` list are
  * reported back as `skippedLines`, not treated as an error.
+ *
+ * A `BudgetLine` is marked `isApplied: true` (and persisted via
+ * `replaceBudgetLine`) upon successful application, by both mutations.
+ * Re-applying an already-applied line now throws — `applyBudgetLineToLedger`
+ * rejects it (surfacing as 500, the same unwrapped-error convention as this
+ * file's other domain validation failures) for the single mutation, and the
+ * batch mutation's underlying `applyBudgetLinesToLedger` auto-skips it into
+ * `skippedLines` instead of erroring or double-posting.
  */
 export const budgetRouter = router({
   paydaySchedules: publicProcedure.query(() => getPaydaySchedules()),
@@ -151,6 +170,7 @@ export const budgetRouter = router({
         fundingSubEnvelope,
       });
       addTransaction(transaction);
+      replaceBudgetLine(markBudgetLineApplied(line));
       return transaction;
     }),
   applyBudgetLines: publicProcedure
@@ -161,10 +181,12 @@ export const budgetRouter = router({
     )
     .mutation(({ input }) => {
       const applications = parseAndValidateApplications(input.applications);
-      const resolver = buildApplyResolver(applications);
+      const appliedLines: BudgetLine[] = [];
+      const resolver = buildApplyResolver(applications, appliedLines);
 
       const result = applyBudgetLinesToLedger(getBudgetLines(), resolver);
       result.appliedTransactions.forEach(addTransaction);
+      appliedLines.forEach((line) => replaceBudgetLine(markBudgetLineApplied(line)));
 
       return { appliedTransactions: result.appliedTransactions, skippedLines: result.skippedLines };
     }),

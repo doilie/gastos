@@ -47,6 +47,13 @@ export interface BudgetLine {
   /** Always a positive magnitude: how much is allocated. */
   readonly amount: Cents;
   readonly description: string;
+  /**
+   * Whether this line has already been applied into the ledger (via
+   * `applyBudgetLine`). Mirrors `Account.isArchived`/`SubEnvelope.isArchived`
+   * as a persisted status flag. Prevents double-posting the same allocation —
+   * `applyBudgetLine` rejects a line where this is already `true`.
+   */
+  readonly isApplied: boolean;
 }
 
 function assertNonEmptyDescription(description: string, context: string): string {
@@ -85,7 +92,16 @@ export function createBudgetLine(input: {
     subEnvelopeId: input.subEnvelopeId,
     amount: assertPositiveAmount(input.amount, "createBudgetLine"),
     description: assertNonEmptyDescription(input.description, "createBudgetLine"),
+    isApplied: false,
   };
+}
+
+/**
+ * Marks `line` as applied (`isApplied: true`). Touches nothing else on
+ * `line`.
+ */
+export function markBudgetLineApplied(line: BudgetLine): BudgetLine {
+  return { ...line, isApplied: true };
 }
 
 /** Input required to apply a `BudgetLine` into a ledger `Transaction`. */
@@ -94,6 +110,12 @@ export interface ApplyBudgetLineInput {
   readonly accountId: AccountId;
   /** The sub-envelope the budget line targets, needed to inspect its `accountIds`. */
   readonly fundingSubEnvelope: SubEnvelope;
+}
+
+function assertNotAlreadyApplied(line: BudgetLine): void {
+  if (line.isApplied) {
+    throw new Error("applyBudgetLine: budget line is already applied");
+  }
 }
 
 function assertFundingSubEnvelopeMatches(line: BudgetLine, fundingSubEnvelope: SubEnvelope): void {
@@ -121,9 +143,13 @@ function assertAccountBelongsToFundingSubEnvelope(
  * unlike `settleCardPurchase` which negates since it's a debit). The caller
  * supplies both `accountId` and the full `fundingSubEnvelope` entity
  * explicitly; this function validates them against `line`, it never derives
- * them. Throws a descriptive `Error` if `input` is inconsistent with `line`.
+ * them. Throws a descriptive `Error` if `input` is inconsistent with `line`,
+ * or if `line.isApplied` is already `true` — this is what makes
+ * double-applying the same line impossible; callers must persist the result
+ * of `markBudgetLineApplied` before this can be safely called again.
  */
 export function applyBudgetLine(line: BudgetLine, input: ApplyBudgetLineInput): Transaction {
+  assertNotAlreadyApplied(line);
   assertFundingSubEnvelopeMatches(line, input.fundingSubEnvelope);
   assertAccountBelongsToFundingSubEnvelope(input.fundingSubEnvelope, input.accountId);
   return createTransaction({
@@ -154,15 +180,14 @@ export interface BudgetLineApplicationResult {
  * apply it with; returning `null` defers that line (pushed onto
  * `skippedLines`, not an error).
  *
- * Unlike `settleCardCycle`, there is no automatic "unfunded"-style skip
- * here: every `BudgetLine` is inherently ready to apply once it exists (it
- * has no `FundingSource` that can be `"none"` the way a `CardPurchase`
- * does), so `resolveApplyInput` is always called. This function also does
- * not filter `lines` by period/payday the way `settleCardCycle` filters
- * purchases by `CardCycle` — the caller is expected to already pass in
- * whatever pre-scoped list of lines it wants to attempt. Both omissions are
- * deliberate simplifications versus the Credit Card thread's batch
- * function, not oversights.
+ * Lines where `line.isApplied` is already `true` are skipped without even
+ * calling `resolveApplyInput`, mirroring `settleCardCycle`'s auto-skip of
+ * purchases with an unfunded `FundingSource` — since `applyBudgetLine` would
+ * reject them anyway. This function also does not filter `lines` by
+ * period/payday the way `settleCardCycle` filters purchases by `CardCycle` —
+ * the caller is expected to already pass in whatever pre-scoped list of
+ * lines it wants to attempt. This omission is a deliberate simplification
+ * versus the Credit Card thread's batch function, not an oversight.
  *
  * Any `ApplyBudgetLineInput` returned by `resolveApplyInput` is expected to
  * be consistent with the line's declared `subEnvelopeId`; `applyBudgetLine`
@@ -177,6 +202,11 @@ export function applyBudgetLines(
   const skippedLines: BudgetLine[] = [];
 
   for (const line of lines) {
+    if (line.isApplied) {
+      skippedLines.push(line);
+      continue;
+    }
+
     const input = resolveApplyInput(line);
     if (input === null) {
       skippedLines.push(line);

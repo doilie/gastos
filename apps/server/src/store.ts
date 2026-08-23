@@ -189,7 +189,7 @@ const paydaySchedules: readonly PaydaySchedule[] = [defaultPaydaySchedule];
 const augustPaydayDate = ledgerDateFromString("2026-08-15");
 const augustBudgetPeriod = { year: 2026, month: 8 };
 
-const budgetLines: readonly BudgetLine[] = [
+const budgetLines: BudgetLine[] = [
   createBudgetLine({
     id: budgetLineIdFromString("budget-line-groceries-fund-august-15"),
     budgetPeriod: augustBudgetPeriod,
@@ -344,4 +344,15 @@ export function getPaydaySchedules(): readonly PaydaySchedule[] {
 /** Returns the seeded budget lines. */
 export function getBudgetLines(): readonly BudgetLine[] {
   return budgetLines;
+}
+
+/**
+ * Overwrites the existing budget line with the same `id` as `line`. Trusts
+ * the caller (the router) already validated the id exists — no NOT_FOUND
+ * handling here, mirroring `replaceAccount`'s exact "store just does the
+ * mechanical operation" split.
+ */
+export function replaceBudgetLine(line: BudgetLine): void {
+  const index = budgetLines.findIndex((existing) => existing.id === line.id);
+  budgetLines[index] = line;
 }
