@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { ledgerDateFromString } from "../ledger-core/transaction";
 import { createPaydaySchedule, paydayScheduleIdFromString } from "../reference/payday-schedule";
-import { isDateWithinPaydayWindow, paydayWindowContaining } from "./payday-window";
+import { isDateWithinPaydayWindow, nextPaydayAfter, paydayWindowContaining } from "./payday-window";
 
 const id = paydayScheduleIdFromString("schedule-1");
 const semiMonthly = createPaydaySchedule({ id, name: "Semi-monthly", paydayDaysOfMonth: [15, 31] });
@@ -93,6 +93,44 @@ describe("isDateWithinPaydayWindow", () => {
 
   it("a date one day after the window's end is not within the window", () => {
     expect(isDateWithinPaydayWindow(ledgerDateFromString("2024-06-15"), window)).toBe(false);
+  });
+});
+
+describe("nextPaydayAfter", () => {
+  it("returns the next payday for a date strictly between two paydays", () => {
+    // 2024-06-20 is strictly between June 15 and June's clamped second
+    // payday (June 30, since day 31 clamps down in a 30-day month).
+    expect(nextPaydayAfter(semiMonthly, ledgerDateFromString("2024-06-20"))).toEqual(
+      ledgerDateFromString("2024-06-30"),
+    );
+  });
+
+  it("returns the FOLLOWING payday, not the date itself, when the date IS itself a payday", () => {
+    expect(nextPaydayAfter(semiMonthly, ledgerDateFromString("2024-06-15"))).toEqual(
+      ledgerDateFromString("2024-06-30"),
+    );
+    // Confirm this is genuinely a different date than the input.
+    expect(nextPaydayAfter(semiMonthly, ledgerDateFromString("2024-06-15"))).not.toEqual(
+      ledgerDateFromString("2024-06-15"),
+    );
+  });
+
+  it("seeded-style [15, 31] schedule, first half of the month: a date before the 15th resolves to the 15th", () => {
+    expect(nextPaydayAfter(semiMonthly, ledgerDateFromString("2024-06-05"))).toEqual(
+      ledgerDateFromString("2024-06-15"),
+    );
+  });
+
+  it("seeded-style [15, 31] schedule, second half of the month: a date after the 15th resolves to the month's clamped last payday", () => {
+    expect(nextPaydayAfter(semiMonthly, ledgerDateFromString("2024-06-20"))).toEqual(
+      ledgerDateFromString("2024-06-30"),
+    );
+  });
+
+  it("a single-payday-per-month schedule correctly reaches into the next calendar month", () => {
+    expect(nextPaydayAfter(monthlyOnly, ledgerDateFromString("2024-06-20"))).toEqual(
+      ledgerDateFromString("2024-07-15"),
+    );
   });
 });
 

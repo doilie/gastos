@@ -67,6 +67,19 @@ function previousLedgerDay(date: LedgerDate): LedgerDate {
   );
 }
 
+/** Returns the calendar day after `date`, via a `Date.UTC` round-trip — the
+ * mirror image of `previousLedgerDay` above (and of `card-cycle.ts`'s own
+ * private `nextLedgerDay`, reimplemented here per this file's established
+ * per-file-duplication convention rather than importing another file's
+ * private helper). */
+function nextLedgerDay(date: LedgerDate): LedgerDate {
+  const { year, month, day } = parseLedgerDateParts(date);
+  const followingDay = new Date(Date.UTC(year, month - 1, day + 1));
+  return ledgerDateFromString(
+    formatLedgerDate(followingDay.getUTCFullYear(), followingDay.getUTCMonth() + 1, followingDay.getUTCDate()),
+  );
+}
+
 /**
  * Returns the concatenation of the previous, current, and next months'
  * paydays for `schedule`, in that chronological order. Not sorted or
@@ -163,4 +176,17 @@ export function paydayWindowContaining(schedule: PaydaySchedule, date: LedgerDat
  */
 export function isDateWithinPaydayWindow(date: LedgerDate, window: PaydayWindow): boolean {
   return window.start <= date && date <= window.end;
+}
+
+/**
+ * Returns the payday strictly after `date` for `schedule` — i.e. if `date`
+ * IS itself a payday, this returns the *next* one, not `date` itself. This
+ * falls out correctly with no special-casing: `paydayWindowContaining`'s
+ * `window.end` is always the day before the true next payday by
+ * construction, so stepping one day forward from it recovers that next
+ * payday exactly.
+ */
+export function nextPaydayAfter(schedule: PaydaySchedule, date: LedgerDate): LedgerDate {
+  const window = paydayWindowContaining(schedule, date);
+  return nextLedgerDay(window.end);
 }
