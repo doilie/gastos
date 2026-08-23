@@ -489,6 +489,40 @@ error text is unchanged). This directly fixes the specific bug the previous "acc
 described: navigating away from the Budget tab and back now correctly shows an already-applied
 line as applied, instead of resetting to a fresh, re-postable "Apply" button.
 
+Increment 52 begins consuming `packages/db` (scaffolded at Increment 43) for real: the Reference
+layer (`Account`/`Category`/`EnvelopeGroup`/`SubEnvelope`) in `apps/server/src/store.ts` is no
+longer an in-memory array — it's backed by a real Postgres connection via a new
+`createReferenceStore(db)` factory (`apps/server/src/reference-store.ts`), with row↔branded-type
+mapping done directly (`xFromString` constructors, not `createX` factories, since a DB row is
+already trusted data). `apps/server/src/db.ts` loads `DATABASE_URL` from the repo-root `.env`
+(resolved relative to the file, not the process cwd, since `pnpm --filter` may run with cwd set to
+the package directory), exports the production `db`/`referenceStore` singletons, a migration
+runner (`runMigrations`, applying `packages/db/drizzle` via `drizzle-orm/postgres-js/migrator`),
+and an idempotent seed (`seedReferenceData`, `.onConflictDoNothing()`-based) reproducing the exact
+fixture rows the old in-memory arrays hardcoded. `apps/server/src/index.ts`'s `start()` now runs
+migrations then seeds before `fastify.listen`; `buildServer()` itself stays synchronous with no DB
+side effects, so tests control migration/seed timing themselves. Every router touching
+Reference-layer ids for validation (`reference.ts`, `budget.ts`, `cards.ts`, `ledger.ts`,
+`reporting.ts`) was converted to `async`/`await`, fetching each list at most once per handler and
+reusing it (each call is now a real DB round trip) rather than the old pattern of calling the same
+getter multiple times per handler. `Transaction`/`CreditCard`/`CardPurchase`/`PaydaySchedule`/
+`BudgetLine` are NOT yet DB-backed — they stay in-memory, now pointing at fixed id constants
+exported from `db.ts` (`CHECKING_ACCOUNT_ID` etc.) instead of the old local `Account`/`Category`
+objects; wiring those layers is deferred to later increments, "one layer at a time" per the
+Increment-43 plan. Since every router now requires a real, seeded Postgres to resolve
+Reference-layer lookups, `apps/server`'s router test files (`store.test.ts`,
+`routers/{reference,budget,cards,ledger,reporting}.test.ts`) were converted from pure in-memory
+unit tests to testcontainers-backed integration tests — each file spins its own ephemeral
+`postgres:16-alpine` container in a `beforeAll` (setting `process.env.DATABASE_URL` before
+dynamically `import()`-ing `../db`/`../store`/`../index`, since `db.ts` builds its singletons
+eagerly at module-import time), migrates and seeds it, then tears it down in `afterAll` — this
+moves these files from this codebase's ~65% unit tier into the ~22% testcontainers-integration
+tier the test pyramid always budgeted for, not a scope regression. `packages/db/src/schema/
+schema.integration.test.ts` (written at Increment 43 but `describe.skip`-marked because Docker
+wasn't installed in this environment) is un-skipped and passing for real now that Docker Desktop is
+available. A local dev Postgres is provisioned via the existing root `docker-compose.yml`
+(`docker compose up -d`) plus a root `.env` copied from `.env.example`.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
