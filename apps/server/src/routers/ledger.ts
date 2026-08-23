@@ -57,27 +57,30 @@ type AddTransactionInput = z.infer<typeof addTransactionInputSchema>;
 /**
  * Parses and validates the id-shaped fields of an `addTransaction` input
  * against the store, throwing `NOT_FOUND` (via `assertIdExists`) for any
- * reference that doesn't resolve to a seeded entity.
+ * reference that doesn't resolve to a seeded entity. Fetches each
+ * Reference-layer list at most once (now real DB round trips).
  */
-function resolveTransactionInput(input: AddTransactionInput): {
+async function resolveTransactionInput(input: AddTransactionInput): Promise<{
   accountId: AccountId;
   subEnvelopeId: SubEnvelopeId;
   categoryId: CategoryId | null;
-} {
+}> {
+  const [accountsList, subEnvelopesList, categoriesList] = await Promise.all([
+    getAccounts(),
+    getSubEnvelopes(),
+    getCategories(),
+  ]);
+
   const accountId: AccountId = accountIdFromString(input.accountId);
-  assertIdExists(getAccounts(), accountId, `Account "${accountId}" not found`);
+  assertIdExists(accountsList, accountId, `Account "${accountId}" not found`);
 
   const subEnvelopeId: SubEnvelopeId = subEnvelopeIdFromString(input.subEnvelopeId);
-  assertIdExists(
-    getSubEnvelopes(),
-    subEnvelopeId,
-    `Sub-envelope "${subEnvelopeId}" not found`,
-  );
+  assertIdExists(subEnvelopesList, subEnvelopeId, `Sub-envelope "${subEnvelopeId}" not found`);
 
   const categoryId: CategoryId | null =
     input.categoryId === null ? null : categoryIdFromString(input.categoryId);
   if (categoryId !== null) {
-    assertIdExists(getCategories(), categoryId, `Category "${categoryId}" not found`);
+    assertIdExists(categoriesList, categoryId, `Category "${categoryId}" not found`);
   }
 
   return { accountId, subEnvelopeId, categoryId };
@@ -97,17 +100,17 @@ export const ledgerRouter = router({
   ),
   accountBalance: publicProcedure
     .input(z.object({ accountId: z.string() }))
-    .query(({ input }) => {
+    .query(async ({ input }) => {
       const accountId: AccountId = accountIdFromString(input.accountId);
-      assertIdExists(getAccounts(), accountId, `Account "${accountId}" not found`);
+      assertIdExists(await getAccounts(), accountId, `Account "${accountId}" not found`);
       return deriveAccountBalance(getTransactions(), accountId);
     }),
   subEnvelopeBalance: publicProcedure
     .input(z.object({ subEnvelopeId: z.string() }))
-    .query(({ input }) => {
+    .query(async ({ input }) => {
       const subEnvelopeId: SubEnvelopeId = subEnvelopeIdFromString(input.subEnvelopeId);
       assertIdExists(
-        getSubEnvelopes(),
+        await getSubEnvelopes(),
         subEnvelopeId,
         `Sub-envelope "${subEnvelopeId}" not found`,
       );
@@ -115,8 +118,8 @@ export const ledgerRouter = router({
     }),
   addTransaction: publicProcedure
     .input(addTransactionInputSchema)
-    .mutation(({ input }) => {
-      const { accountId, subEnvelopeId, categoryId } = resolveTransactionInput(input);
+    .mutation(async ({ input }) => {
+      const { accountId, subEnvelopeId, categoryId } = await resolveTransactionInput(input);
       const transaction: Transaction = createTransaction({
         id: transactionIdFromString(randomUUID()),
         date: ledgerDateFromString(input.date),

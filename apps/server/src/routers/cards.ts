@@ -1,4 +1,5 @@
 import {
+  type Account,
   type AccountId,
   accountIdFromString,
   type CardCycle,
@@ -53,18 +54,24 @@ function findCardPurchase(purchaseId: string): CardPurchase {
 
 /**
  * Looks up the `SubEnvelope` an envelope-funded `CardPurchase` declares as
- * its `FundingSource`, throwing `NOT_FOUND` if it's somehow missing (a cheap
- * defensive check — this app's referential-integrity invariants should
- * always guarantee it exists). Returns `undefined` for `"account"`/`"none"`
- * funding, where no `fundingSubEnvelope` is needed.
+ * its `FundingSource` from an already-fetched `subEnvelopes` list, throwing
+ * `NOT_FOUND` if it's somehow missing (a cheap defensive check — this app's
+ * referential-integrity invariants should always guarantee it exists).
+ * Returns `undefined` for `"account"`/`"none"` funding, where no
+ * `fundingSubEnvelope` is needed. Takes the list as a parameter (rather
+ * than calling `getSubEnvelopes()` itself) since it's also called from
+ * inside the synchronous resolver `settleCardCycleInLedger` invokes.
  */
-function resolveFundingSubEnvelope(purchase: CardPurchase): SubEnvelope | undefined {
+function resolveFundingSubEnvelope(
+  purchase: CardPurchase,
+  subEnvelopes: readonly SubEnvelope[],
+): SubEnvelope | undefined {
   if (purchase.fundingSource.kind !== "envelope") {
     return undefined;
   }
 
   const subEnvelopeId = purchase.fundingSource.subEnvelopeId;
-  const fundingSubEnvelope = getSubEnvelopes().find((candidate) => candidate.id === subEnvelopeId);
+  const fundingSubEnvelope = subEnvelopes.find((candidate) => candidate.id === subEnvelopeId);
   if (fundingSubEnvelope === undefined) {
     throw new TRPCError({
       code: "NOT_FOUND",
@@ -78,11 +85,15 @@ function resolveFundingSubEnvelope(purchase: CardPurchase): SubEnvelope | undefi
  * Validates every `settlements[]` entry's `purchaseId`/`accountId`/
  * `subEnvelopeId` against the seeded stores (`NOT_FOUND` for any miss), and
  * builds a `purchaseId -> {accountId, subEnvelopeId}` lookup for
- * `buildSettleCycleResolver` to consult. Mirrors
- * `budget.ts`'s `parseAndValidateApplications`.
+ * `buildSettleCycleResolver` to consult. Takes the already-fetched
+ * `accounts`/`subEnvelopes` lists as parameters (fetched once by the
+ * caller) rather than calling `getAccounts()`/`getSubEnvelopes()` in a
+ * loop. Mirrors `budget.ts`'s `parseAndValidateApplications`.
  */
 function parseAndValidateSettlements(
   settlements: readonly { purchaseId: string; accountId: string; subEnvelopeId: string }[],
+  accounts: readonly Account[],
+  subEnvelopes: readonly SubEnvelope[],
 ): Map<CardPurchaseId, { accountId: AccountId; subEnvelopeId: SubEnvelopeId }> {
   const settlementsByPurchaseId = new Map<
     CardPurchaseId,
@@ -94,10 +105,10 @@ function parseAndValidateSettlements(
     assertIdExists(getCardPurchases(), purchaseId, `Card purchase "${purchaseId}" not found`);
 
     const accountId = accountIdFromString(settlement.accountId);
-    assertIdExists(getAccounts(), accountId, `Account "${accountId}" not found`);
+    assertIdExists(accounts, accountId, `Account "${accountId}" not found`);
 
     const subEnvelopeId = subEnvelopeIdFromString(settlement.subEnvelopeId);
-    assertIdExists(getSubEnvelopes(), subEnvelopeId, `Sub-envelope "${subEnvelopeId}" not found`);
+    assertIdExists(subEnvelopes, subEnvelopeId, `Sub-envelope "${subEnvelopeId}" not found`);
 
     settlementsByPurchaseId.set(purchaseId, { accountId, subEnvelopeId });
   }
@@ -111,10 +122,13 @@ function parseAndValidateSettlements(
  * (resolver returns `null`); purchases present resolve to a concrete
  * `SettleCardPurchaseInput` using the caller-supplied account/sub-envelope,
  * plus the purchase's own funding sub-envelope when it's envelope-funded.
+ * `subEnvelopes` is the already-fetched list `resolveFundingSubEnvelope`
+ * needs, since the domain function's resolver contract is synchronous.
  * Mirrors `budget.ts`'s `buildApplyResolver`.
  */
 function buildSettleCycleResolver(
   settlements: Map<CardPurchaseId, { accountId: AccountId; subEnvelopeId: SubEnvelopeId }>,
+  subEnvelopes: readonly SubEnvelope[],
 ) {
   return (purchase: CardPurchase) => {
     const settlement = settlements.get(purchase.id);
@@ -122,7 +136,7 @@ function buildSettleCycleResolver(
       return null;
     }
 
-    const fundingSubEnvelope = resolveFundingSubEnvelope(purchase);
+    const fundingSubEnvelope = resolveFundingSubEnvelope(purchase, subEnvelopes);
     return {
       id: transactionIdFromString(randomUUID()),
       accountId: settlement.accountId,
@@ -176,16 +190,17 @@ export const cardsRouter = router({
         subEnvelopeId: z.string(),
       }),
     )
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const purchase = findCardPurchase(input.purchaseId);
+      const [accounts, subEnvelopes] = await Promise.all([getAccounts(), getSubEnvelopes()]);
 
       const accountId: AccountId = accountIdFromString(input.accountId);
-      assertIdExists(getAccounts(), accountId, `Account "${accountId}" not found`);
+      assertIdExists(accounts, accountId, `Account "${accountId}" not found`);
 
       const subEnvelopeId: SubEnvelopeId = subEnvelopeIdFromString(input.subEnvelopeId);
-      assertIdExists(getSubEnvelopes(), subEnvelopeId, `Sub-envelope "${subEnvelopeId}" not found`);
+      assertIdExists(subEnvelopes, subEnvelopeId, `Sub-envelope "${subEnvelopeId}" not found`);
 
-      const fundingSubEnvelope = resolveFundingSubEnvelope(purchase);
+      const fundingSubEnvelope = resolveFundingSubEnvelope(purchase, subEnvelopes);
 
       const transaction = settleCardPurchaseInLedger(purchase, {
         id: transactionIdFromString(randomUUID()),
@@ -211,7 +226,7 @@ export const cardsRouter = router({
         ),
       }),
     )
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       assertIdExists(
         getCreditCards(),
         input.creditCardId,
@@ -223,8 +238,9 @@ export const cardsRouter = router({
         end: ledgerDateFromString(input.cycleEnd),
       };
 
-      const settlements = parseAndValidateSettlements(input.settlements);
-      const resolver = buildSettleCycleResolver(settlements);
+      const [accounts, subEnvelopes] = await Promise.all([getAccounts(), getSubEnvelopes()]);
+      const settlements = parseAndValidateSettlements(input.settlements, accounts, subEnvelopes);
+      const resolver = buildSettleCycleResolver(settlements, subEnvelopes);
 
       const cardPurchases = getCardPurchases().filter(
         (purchase) => purchase.creditCardId === input.creditCardId,

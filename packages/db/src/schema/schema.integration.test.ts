@@ -2,14 +2,9 @@
 // (packages/db/src/schema/**) against a real ephemeral Postgres, per
 // gastos-tester's Docker-constraint protocol.
 //
-// SKIPPED IN THIS ENVIRONMENT: Docker is not installed here (`docker
-// --version` fails with "command not found"), so testcontainers cannot
-// start the `postgres:16-alpine` container these tests need. This suite is
-// intentionally still written and committed rather than omitted — flip
-// `describe.skip` to `describe` on any machine with Docker available (e.g.
-// CI) to run it for real. Verified once, with `.skip` temporarily removed,
-// that the failure here is specifically "cannot connect to the Docker
-// daemon" (a testcontainers startup error), not a bug in the test bodies.
+// Docker is installed and running in this environment, so this suite runs
+// for real against an ephemeral testcontainers-managed `postgres:16-alpine`
+// container (started fresh per run, migrated, then torn down in `afterAll`).
 //
 // Covers: round-tripping a minimal valid row through all 10 tables (in FK
 // order, applying both migration files in packages/db/drizzle), the
@@ -254,7 +249,7 @@ async function testRejectsNullFundingSourceKind(db: Db): Promise<void> {
   await expect(db.insert(cardPurchases).values(invalidRow)).rejects.toThrow();
 }
 
-describe.skip("@gastos/db schema (testcontainers Postgres) — SKIPPED: Docker not installed locally, see file header", () => {
+describe("@gastos/db schema (testcontainers Postgres)", () => {
   let container: StartedPostgreSqlContainer;
   let db: Db;
 

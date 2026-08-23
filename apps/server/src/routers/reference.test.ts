@@ -1,7 +1,33 @@
-import { describe, expect, it } from "vitest";
+import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { buildServer } from "../index";
-import { getAccounts, getCategories, getEnvelopeGroups, getSubEnvelopes } from "../store";
+// This router validates ids against Postgres-backed Reference-layer tables
+// (accounts/categories/envelope groups/sub-envelopes) at handler-call time,
+// so this file needs its own ephemeral, migrated, seeded testcontainers
+// Postgres before importing `buildServer`/the store getters, per the
+// gastos-coder-documented conversion recipe.
+let container: StartedPostgreSqlContainer;
+let buildServer: typeof import("../index").buildServer;
+let getAccounts: typeof import("../store").getAccounts;
+let getCategories: typeof import("../store").getCategories;
+let getEnvelopeGroups: typeof import("../store").getEnvelopeGroups;
+let getSubEnvelopes: typeof import("../store").getSubEnvelopes;
+
+beforeAll(async () => {
+  container = await new PostgreSqlContainer("postgres:16-alpine").start();
+  process.env["DATABASE_URL"] = container.getConnectionUri();
+
+  const dbModule = await import("../db");
+  await dbModule.runMigrations(dbModule.db);
+  await dbModule.seedReferenceData(dbModule.db);
+
+  ({ buildServer } = await import("../index"));
+  ({ getAccounts, getCategories, getEnvelopeGroups, getSubEnvelopes } = await import("../store"));
+}, 60_000);
+
+afterAll(async () => {
+  await container.stop();
+});
 
 interface TrpcQueryResponse<T> {
   result: { data: T };
@@ -102,28 +128,28 @@ describe("reference router", () => {
   it("reference.accounts returns exactly what store.getAccounts() returns", async () => {
     const app = buildServer();
     const data = await queryReference(app, "accounts");
-    expect(data).toEqual(getAccounts());
+    expect(data).toEqual(await getAccounts());
     await app.close();
   });
 
   it("reference.categories returns exactly what store.getCategories() returns", async () => {
     const app = buildServer();
     const data = await queryReference(app, "categories");
-    expect(data).toEqual(getCategories());
+    expect(data).toEqual(await getCategories());
     await app.close();
   });
 
   it("reference.envelopeGroups returns exactly what store.getEnvelopeGroups() returns", async () => {
     const app = buildServer();
     const data = await queryReference(app, "envelopeGroups");
-    expect(data).toEqual(getEnvelopeGroups());
+    expect(data).toEqual(await getEnvelopeGroups());
     await app.close();
   });
 
   it("reference.subEnvelopes returns exactly what store.getSubEnvelopes() returns", async () => {
     const app = buildServer();
     const data = await queryReference(app, "subEnvelopes");
-    expect(data).toEqual(getSubEnvelopes());
+    expect(data).toEqual(await getSubEnvelopes());
     await app.close();
   });
 });

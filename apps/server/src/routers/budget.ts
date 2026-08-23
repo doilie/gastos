@@ -1,4 +1,5 @@
 import {
+  type Account,
   type AccountId,
   accountIdFromString,
   applyBudgetLine as applyBudgetLineToLedger,
@@ -43,11 +44,19 @@ function assertIdExists(
 }
 
 /**
- * Looks up the `SubEnvelope` a `BudgetLine` targets, throwing `NOT_FOUND` if
- * it's missing. Shared by the single-item and batch mutations.
+ * Looks up the `SubEnvelope` a `BudgetLine` targets from an
+ * already-fetched `subEnvelopes` list, throwing `NOT_FOUND` if it's
+ * missing. Shared by the single-item and batch mutations. Takes the list
+ * as a parameter (rather than calling `getSubEnvelopes()` itself) since
+ * it's also called from inside the synchronous resolver
+ * `applyBudgetLinesToLedger` invokes — the async store call must happen
+ * once, up front, by the caller.
  */
-function findFundingSubEnvelope(line: BudgetLine): SubEnvelope {
-  const fundingSubEnvelope = getSubEnvelopes().find(
+function findFundingSubEnvelope(
+  line: BudgetLine,
+  subEnvelopes: readonly SubEnvelope[],
+): SubEnvelope {
+  const fundingSubEnvelope = subEnvelopes.find(
     (candidate) => candidate.id === line.subEnvelopeId,
   );
   if (fundingSubEnvelope === undefined) {
@@ -64,7 +73,10 @@ function findFundingSubEnvelope(line: BudgetLine): SubEnvelope {
  * targets, throwing `NOT_FOUND` for either miss. Factored out of the
  * `applyBudgetLine` mutation to keep it under the complexity/length caps.
  */
-function resolveBudgetLineAndSubEnvelope(budgetLineId: string): {
+function resolveBudgetLineAndSubEnvelope(
+  budgetLineId: string,
+  subEnvelopes: readonly SubEnvelope[],
+): {
   line: BudgetLine;
   fundingSubEnvelope: SubEnvelope;
 } {
@@ -74,18 +86,21 @@ function resolveBudgetLineAndSubEnvelope(budgetLineId: string): {
     throw new TRPCError({ code: "NOT_FOUND", message: `BudgetLine "${id}" not found` });
   }
 
-  return { line, fundingSubEnvelope: findFundingSubEnvelope(line) };
+  return { line, fundingSubEnvelope: findFundingSubEnvelope(line, subEnvelopes) };
 }
 
 /**
  * Validates every `{ budgetLineId, accountId }` pair in `applications`
  * against the seeded stores (`NOT_FOUND` for either miss), and builds a
  * `budgetLineId -> accountId` lookup for `buildApplyResolver` to consult.
+ * Takes the already-fetched `accounts` list as a parameter (fetched once by
+ * the caller) rather than calling `getAccounts()` itself in a loop.
  * Factored out of `applyBudgetLines` to keep it under the complexity/length
  * caps.
  */
 function parseAndValidateApplications(
   applications: readonly { budgetLineId: string; accountId: string }[],
+  accounts: readonly Account[],
 ): Map<BudgetLineId, AccountId> {
   const applicationsByLineId = new Map<BudgetLineId, AccountId>();
 
@@ -94,7 +109,7 @@ function parseAndValidateApplications(
     assertIdExists(getBudgetLines(), budgetLineId, `BudgetLine "${budgetLineId}" not found`);
 
     const accountId = accountIdFromString(application.accountId);
-    assertIdExists(getAccounts(), accountId, `Account "${accountId}" not found`);
+    assertIdExists(accounts, accountId, `Account "${accountId}" not found`);
 
     applicationsByLineId.set(budgetLineId, accountId);
   }
@@ -114,11 +129,14 @@ function parseAndValidateApplications(
  * the domain function calls this resolver strictly before it calls
  * `applyBudgetLine` for that same line, and either both succeed or the whole
  * batch call throws without returning, so a returned result always matches
- * `appliedLines` 1:1 with `result.appliedTransactions`.
+ * `appliedLines` 1:1 with `result.appliedTransactions`. `subEnvelopes` is the
+ * already-fetched list `findFundingSubEnvelope` needs, since the domain
+ * function's resolver contract is synchronous.
  */
 function buildApplyResolver(
   applications: Map<BudgetLineId, AccountId>,
   appliedLines: BudgetLine[],
+  subEnvelopes: readonly SubEnvelope[],
 ): (line: BudgetLine) => ApplyBudgetLineInput | null {
   return (line) => {
     const accountId = applications.get(line.id);
@@ -130,7 +148,7 @@ function buildApplyResolver(
     return {
       id: transactionIdFromString(randomUUID()),
       accountId,
-      fundingSubEnvelope: findFundingSubEnvelope(line),
+      fundingSubEnvelope: findFundingSubEnvelope(line, subEnvelopes),
     };
   };
 }
@@ -158,11 +176,15 @@ export const budgetRouter = router({
   budgetLines: publicProcedure.query(() => getBudgetLines()),
   applyBudgetLine: publicProcedure
     .input(z.object({ budgetLineId: z.string(), accountId: z.string() }))
-    .mutation(({ input }) => {
-      const { line, fundingSubEnvelope } = resolveBudgetLineAndSubEnvelope(input.budgetLineId);
+    .mutation(async ({ input }) => {
+      const [accounts, subEnvelopes] = await Promise.all([getAccounts(), getSubEnvelopes()]);
+      const { line, fundingSubEnvelope } = resolveBudgetLineAndSubEnvelope(
+        input.budgetLineId,
+        subEnvelopes,
+      );
 
       const accountId = accountIdFromString(input.accountId);
-      assertIdExists(getAccounts(), accountId, `Account "${accountId}" not found`);
+      assertIdExists(accounts, accountId, `Account "${accountId}" not found`);
 
       const transaction = applyBudgetLineToLedger(line, {
         id: transactionIdFromString(randomUUID()),
@@ -179,10 +201,11 @@ export const budgetRouter = router({
         applications: z.array(z.object({ budgetLineId: z.string(), accountId: z.string() })),
       }),
     )
-    .mutation(({ input }) => {
-      const applications = parseAndValidateApplications(input.applications);
+    .mutation(async ({ input }) => {
+      const [accounts, subEnvelopes] = await Promise.all([getAccounts(), getSubEnvelopes()]);
+      const applications = parseAndValidateApplications(input.applications, accounts);
       const appliedLines: BudgetLine[] = [];
-      const resolver = buildApplyResolver(applications, appliedLines);
+      const resolver = buildApplyResolver(applications, appliedLines, subEnvelopes);
 
       const result = applyBudgetLinesToLedger(getBudgetLines(), resolver);
       result.appliedTransactions.forEach(addTransaction);

@@ -1,6 +1,29 @@
-import { describe, expect, it } from "vitest";
+import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { buildServer } from "../index";
+// This file's procedures (reporting.categorySpending) resolve
+// Transaction/Category data through the store, which now requires a real
+// Postgres connection at buildServer()-router-handler-call time (see
+// apps/server/src/db.ts's eagerly-built singleton) — so this file starts its
+// own ephemeral, migrated, seeded testcontainers Postgres before importing
+// `buildServer`, per the gastos-coder-documented conversion recipe.
+let container: StartedPostgreSqlContainer;
+let buildServer: typeof import("../index").buildServer;
+
+beforeAll(async () => {
+  container = await new PostgreSqlContainer("postgres:16-alpine").start();
+  process.env["DATABASE_URL"] = container.getConnectionUri();
+
+  const dbModule = await import("../db");
+  await dbModule.runMigrations(dbModule.db);
+  await dbModule.seedReferenceData(dbModule.db);
+
+  ({ buildServer } = await import("../index"));
+}, 60_000);
+
+afterAll(async () => {
+  await container.stop();
+});
 
 interface TrpcQueryResponse<T> {
   result: { data: T };

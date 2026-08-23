@@ -1,7 +1,33 @@
-import { describe, expect, it } from "vitest";
+import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { buildServer } from "../index";
-import { getCardPurchases, getCreditCards } from "../store";
+// This router validates settlement account/sub-envelope ids against
+// Postgres-backed Reference-layer tables at handler-call time, so this file
+// needs its own ephemeral, migrated, seeded testcontainers Postgres before
+// importing `buildServer`, per the gastos-coder-documented conversion
+// recipe. getCardPurchases/getCreditCards themselves remain synchronous and
+// unaffected, but still come from the same dynamically-imported `../store`
+// module since it can't be statically imported before DATABASE_URL is set.
+let container: StartedPostgreSqlContainer;
+let buildServer: typeof import("../index").buildServer;
+let getCardPurchases: typeof import("../store").getCardPurchases;
+let getCreditCards: typeof import("../store").getCreditCards;
+
+beforeAll(async () => {
+  container = await new PostgreSqlContainer("postgres:16-alpine").start();
+  process.env["DATABASE_URL"] = container.getConnectionUri();
+
+  const dbModule = await import("../db");
+  await dbModule.runMigrations(dbModule.db);
+  await dbModule.seedReferenceData(dbModule.db);
+
+  ({ buildServer } = await import("../index"));
+  ({ getCardPurchases, getCreditCards } = await import("../store"));
+}, 60_000);
+
+afterAll(async () => {
+  await container.stop();
+});
 
 interface TrpcQueryResponse<T> {
   result: { data: T };

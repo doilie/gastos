@@ -96,35 +96,33 @@ export const referenceRouter = router({
   subEnvelopes: publicProcedure.query(() => getSubEnvelopes()),
   createAccount: publicProcedure
     .input(z.object({ name: z.string(), currency: z.string() }))
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const account: Account = createAccount({
         id: accountIdFromString(randomUUID()),
         name: input.name,
         currency: currencyCodeFromString(input.currency),
       });
-      addAccount(account);
+      await addAccount(account);
       return account;
     }),
   createCategory: publicProcedure
     .input(z.object({ name: z.string(), isIncome: z.boolean().optional() }))
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const category: Category = createCategory({
         id: categoryIdFromString(randomUUID()),
         name: input.name,
         ...(input.isIncome === undefined ? {} : { isIncome: input.isIncome }),
       });
-      addCategory(category);
+      await addCategory(category);
       return category;
     }),
   updateAccount: publicProcedure
     .input(
       z.object({ id: z.string(), name: z.string().optional(), currency: z.string().optional() }),
     )
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const id: AccountId = accountIdFromString(input.id);
-      assertIdExists(getAccounts(), id, `Account "${id}" not found`);
-
-      const existing = getAccounts().find((account) => account.id === id);
+      const existing = (await getAccounts()).find((account) => account.id === id);
       if (existing === undefined) {
         throw new TRPCError({ code: "NOT_FOUND", message: `Account "${id}" not found` });
       }
@@ -135,18 +133,16 @@ export const referenceRouter = router({
           ? {}
           : { currency: currencyCodeFromString(input.currency) }),
       });
-      replaceAccount(updated);
+      await replaceAccount(updated);
       return updated;
     }),
   updateCategory: publicProcedure
     .input(
       z.object({ id: z.string(), name: z.string().optional(), isIncome: z.boolean().optional() }),
     )
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const id: CategoryId = categoryIdFromString(input.id);
-      assertIdExists(getCategories(), id, `Category "${id}" not found`);
-
-      const existing = getCategories().find((category) => category.id === id);
+      const existing = (await getCategories()).find((category) => category.id === id);
       if (existing === undefined) {
         throw new TRPCError({ code: "NOT_FOUND", message: `Category "${id}" not found` });
       }
@@ -155,59 +151,63 @@ export const referenceRouter = router({
         ...(input.name === undefined ? {} : { name: input.name }),
         ...(input.isIncome === undefined ? {} : { isIncome: input.isIncome }),
       });
-      replaceCategory(updated);
+      await replaceCategory(updated);
       return updated;
     }),
-  archiveAccount: publicProcedure.input(z.object({ id: z.string() })).mutation(({ input }) => {
+  archiveAccount: publicProcedure.input(z.object({ id: z.string() })).mutation(async ({ input }) => {
     const id: AccountId = accountIdFromString(input.id);
-    const existing = getAccounts().find((account) => account.id === id);
+    const existing = (await getAccounts()).find((account) => account.id === id);
     if (existing === undefined) {
       throw new TRPCError({ code: "NOT_FOUND", message: `Account "${id}" not found` });
     }
 
     const updated = archiveAccount(existing);
-    replaceAccount(updated);
+    await replaceAccount(updated);
     return updated;
   }),
-  unarchiveAccount: publicProcedure.input(z.object({ id: z.string() })).mutation(({ input }) => {
-    const id: AccountId = accountIdFromString(input.id);
-    const existing = getAccounts().find((account) => account.id === id);
-    if (existing === undefined) {
-      throw new TRPCError({ code: "NOT_FOUND", message: `Account "${id}" not found` });
-    }
+  unarchiveAccount: publicProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ input }) => {
+      const id: AccountId = accountIdFromString(input.id);
+      const existing = (await getAccounts()).find((account) => account.id === id);
+      if (existing === undefined) {
+        throw new TRPCError({ code: "NOT_FOUND", message: `Account "${id}" not found` });
+      }
 
-    const updated = unarchiveAccount(existing);
-    replaceAccount(updated);
-    return updated;
-  }),
-  deleteCategory: publicProcedure.input(z.object({ id: z.string() })).mutation(({ input }) => {
-    const id: CategoryId = categoryIdFromString(input.id);
-    const existing = getCategories().find((category) => category.id === id);
-    if (existing === undefined) {
-      throw new TRPCError({ code: "NOT_FOUND", message: `Category "${id}" not found` });
-    }
+      const updated = unarchiveAccount(existing);
+      await replaceAccount(updated);
+      return updated;
+    }),
+  deleteCategory: publicProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ input }) => {
+      const id: CategoryId = categoryIdFromString(input.id);
+      const existing = (await getCategories()).find((category) => category.id === id);
+      if (existing === undefined) {
+        throw new TRPCError({ code: "NOT_FOUND", message: `Category "${id}" not found` });
+      }
 
-    const isReferenced =
-      getTransactions().some((transaction) => transaction.categoryId === id) ||
-      getCardPurchases().some((purchase) => purchase.categoryId === id);
-    if (isReferenced) {
-      throw new TRPCError({
-        code: "BAD_REQUEST",
-        message: `Category "${id}" is still in use and cannot be deleted`,
-      });
-    }
+      const isReferenced =
+        getTransactions().some((transaction) => transaction.categoryId === id) ||
+        getCardPurchases().some((purchase) => purchase.categoryId === id);
+      if (isReferenced) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: `Category "${id}" is still in use and cannot be deleted`,
+        });
+      }
 
-    deleteCategory(id);
-    return { id };
-  }),
+      await deleteCategory(id);
+      return { id };
+    }),
   createEnvelopeGroup: publicProcedure
     .input(z.object({ name: z.string() }))
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const envelopeGroup: EnvelopeGroup = createEnvelopeGroup({
         id: envelopeGroupIdFromString(randomUUID()),
         name: input.name,
       });
-      addEnvelopeGroup(envelopeGroup);
+      await addEnvelopeGroup(envelopeGroup);
       return envelopeGroup;
     }),
   createSubEnvelope: publicProcedure
@@ -218,13 +218,14 @@ export const referenceRouter = router({
         accountIds: z.array(z.string()).min(1),
       }),
     )
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const groupId: EnvelopeGroupId = envelopeGroupIdFromString(input.groupId);
-      assertIdExists(getEnvelopeGroups(), groupId, `Envelope group "${groupId}" not found`);
+      assertIdExists(await getEnvelopeGroups(), groupId, `Envelope group "${groupId}" not found`);
 
+      const knownAccounts = await getAccounts();
       const accountIds: AccountId[] = input.accountIds.map((rawAccountId) => {
         const accountId: AccountId = accountIdFromString(rawAccountId);
-        assertIdExists(getAccounts(), accountId, `Account "${accountId}" not found`);
+        assertIdExists(knownAccounts, accountId, `Account "${accountId}" not found`);
         return accountId;
       });
 
@@ -234,16 +235,16 @@ export const referenceRouter = router({
         groupId,
         accountIds,
       });
-      addSubEnvelope(subEnvelope);
+      await addSubEnvelope(subEnvelope);
       return subEnvelope;
     }),
   updateEnvelopeGroup: publicProcedure
     .input(z.object({ id: z.string(), name: z.string().optional() }))
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const id: EnvelopeGroupId = envelopeGroupIdFromString(input.id);
-      assertIdExists(getEnvelopeGroups(), id, `Envelope group "${id}" not found`);
-
-      const existing = getEnvelopeGroups().find((envelopeGroup) => envelopeGroup.id === id);
+      const existing = (await getEnvelopeGroups()).find(
+        (envelopeGroup) => envelopeGroup.id === id,
+      );
       if (existing === undefined) {
         throw new TRPCError({ code: "NOT_FOUND", message: `Envelope group "${id}" not found` });
       }
@@ -251,7 +252,7 @@ export const referenceRouter = router({
       const updated = updateEnvelopeGroup(existing, {
         ...(input.name === undefined ? {} : { name: input.name }),
       });
-      replaceEnvelopeGroup(updated);
+      await replaceEnvelopeGroup(updated);
       return updated;
     }),
   updateSubEnvelope: publicProcedure
@@ -262,64 +263,70 @@ export const referenceRouter = router({
         accountIds: z.array(z.string()).optional(),
       }),
     )
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const id: SubEnvelopeId = subEnvelopeIdFromString(input.id);
-      assertIdExists(getSubEnvelopes(), id, `Sub-envelope "${id}" not found`);
-
-      const existing = getSubEnvelopes().find((subEnvelope) => subEnvelope.id === id);
+      const existing = (await getSubEnvelopes()).find((subEnvelope) => subEnvelope.id === id);
       if (existing === undefined) {
         throw new TRPCError({ code: "NOT_FOUND", message: `Sub-envelope "${id}" not found` });
       }
 
-      const accountIds: AccountId[] | undefined = input.accountIds?.map((rawAccountId) => {
-        const accountId: AccountId = accountIdFromString(rawAccountId);
-        assertIdExists(getAccounts(), accountId, `Account "${accountId}" not found`);
-        return accountId;
-      });
+      let accountIds: AccountId[] | undefined;
+      if (input.accountIds !== undefined) {
+        const knownAccounts = await getAccounts();
+        accountIds = input.accountIds.map((rawAccountId) => {
+          const accountId: AccountId = accountIdFromString(rawAccountId);
+          assertIdExists(knownAccounts, accountId, `Account "${accountId}" not found`);
+          return accountId;
+        });
+      }
 
       const updated = updateSubEnvelope(existing, {
         ...(input.name === undefined ? {} : { name: input.name }),
         ...(accountIds === undefined ? {} : { accountIds }),
       });
-      replaceSubEnvelope(updated);
+      await replaceSubEnvelope(updated);
       return updated;
     }),
   archiveSubEnvelope: publicProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const id: SubEnvelopeId = subEnvelopeIdFromString(input.id);
-      const existing = getSubEnvelopes().find((subEnvelope) => subEnvelope.id === id);
+      const existing = (await getSubEnvelopes()).find((subEnvelope) => subEnvelope.id === id);
       if (existing === undefined) {
         throw new TRPCError({ code: "NOT_FOUND", message: `Sub-envelope "${id}" not found` });
       }
 
       const updated = archiveSubEnvelope(existing);
-      replaceSubEnvelope(updated);
+      await replaceSubEnvelope(updated);
       return updated;
     }),
   unarchiveSubEnvelope: publicProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const id: SubEnvelopeId = subEnvelopeIdFromString(input.id);
-      const existing = getSubEnvelopes().find((subEnvelope) => subEnvelope.id === id);
+      const existing = (await getSubEnvelopes()).find((subEnvelope) => subEnvelope.id === id);
       if (existing === undefined) {
         throw new TRPCError({ code: "NOT_FOUND", message: `Sub-envelope "${id}" not found` });
       }
 
       const updated = unarchiveSubEnvelope(existing);
-      replaceSubEnvelope(updated);
+      await replaceSubEnvelope(updated);
       return updated;
     }),
   deleteEnvelopeGroup: publicProcedure
     .input(z.object({ id: z.string() }))
-    .mutation(({ input }) => {
+    .mutation(async ({ input }) => {
       const id: EnvelopeGroupId = envelopeGroupIdFromString(input.id);
-      const existing = getEnvelopeGroups().find((envelopeGroup) => envelopeGroup.id === id);
+      const existing = (await getEnvelopeGroups()).find(
+        (envelopeGroup) => envelopeGroup.id === id,
+      );
       if (existing === undefined) {
         throw new TRPCError({ code: "NOT_FOUND", message: `Envelope group "${id}" not found` });
       }
 
-      const isReferenced = getSubEnvelopes().some((subEnvelope) => subEnvelope.groupId === id);
+      const isReferenced = (await getSubEnvelopes()).some(
+        (subEnvelope) => subEnvelope.groupId === id,
+      );
       if (isReferenced) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -327,7 +334,7 @@ export const referenceRouter = router({
         });
       }
 
-      deleteEnvelopeGroup(id);
+      await deleteEnvelopeGroup(id);
       return { id };
     }),
 });
