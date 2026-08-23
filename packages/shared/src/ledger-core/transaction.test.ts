@@ -7,6 +7,7 @@ import { categoryIdFromString } from "../reference/category";
 import { subEnvelopeIdFromString } from "../reference/envelope";
 import {
   createTransaction,
+  daysBetweenLedgerDates,
   deriveAccountBalance,
   deriveSubEnvelopeBalance,
   isCredit,
@@ -66,6 +67,79 @@ describe("ledgerDateFromString", () => {
     ["empty string", ""],
   ])("rejects %s (%p)", (_label, input) => {
     expect(() => ledgerDateFromString(input)).toThrow();
+  });
+});
+
+describe("daysBetweenLedgerDates", () => {
+  it("returns 0 for the same date", () => {
+    const date = ledgerDateFromString("2024-06-15");
+    expect(daysBetweenLedgerDates(date, date)).toBe(0);
+  });
+
+  it("returns 1 when `to` is one day later", () => {
+    const from = ledgerDateFromString("2024-06-15");
+    const to = ledgerDateFromString("2024-06-16");
+    expect(daysBetweenLedgerDates(from, to)).toBe(1);
+  });
+
+  it("returns -1 when `to` is one day earlier", () => {
+    const from = ledgerDateFromString("2024-06-15");
+    const to = ledgerDateFromString("2024-06-14");
+    expect(daysBetweenLedgerDates(from, to)).toBe(-1);
+  });
+
+  it("returns a multi-day span within a month", () => {
+    const from = ledgerDateFromString("2024-06-01");
+    const to = ledgerDateFromString("2024-06-20");
+    expect(daysBetweenLedgerDates(from, to)).toBe(19);
+  });
+
+  it("returns a span crossing a month boundary", () => {
+    const from = ledgerDateFromString("2024-06-25");
+    const to = ledgerDateFromString("2024-07-05");
+    expect(daysBetweenLedgerDates(from, to)).toBe(10);
+  });
+
+  it("returns a span crossing a year boundary", () => {
+    const from = ledgerDateFromString("2024-12-28");
+    const to = ledgerDateFromString("2025-01-03");
+    expect(daysBetweenLedgerDates(from, to)).toBe(6);
+  });
+
+  it.each([
+    ["2024-06-01", "2024-06-20"],
+    ["2024-01-01", "2024-12-31"],
+    ["2023-02-15", "2024-03-01"],
+  ])(
+    "is antisymmetric: daysBetweenLedgerDates(a,b) === -daysBetweenLedgerDates(b,a) for %p, %p",
+    (aStr, bStr) => {
+      const a = ledgerDateFromString(aStr);
+      const b = ledgerDateFromString(bStr);
+      expect(daysBetweenLedgerDates(a, b)).toBe(-daysBetweenLedgerDates(b, a));
+    },
+  );
+
+  it("is antisymmetric for fast-check-generated date pairs", () => {
+    const dates = [
+      "2024-01-01",
+      "2024-02-29",
+      "2024-06-15",
+      "2024-06-16",
+      "2024-12-31",
+      "2025-01-01",
+      "2023-02-28",
+    ].map((value) => ledgerDateFromString(value));
+
+    fc.assert(
+      fc.property(fc.constantFrom(...dates), fc.constantFrom(...dates), (a, b) => {
+        // Uses `===` rather than `toBe` (Object.is): when a === b, both
+        // sides are 0, and `-0` (from negating 0) is numerically equal to
+        // `0` under `===` but distinct under `Object.is`/`toBe` — same
+        // caveat already documented for `negateCents` in
+        // `money/index.test.ts`.
+        expect(daysBetweenLedgerDates(a, b) === -daysBetweenLedgerDates(b, a)).toBe(true);
+      }),
+    );
   });
 });
 

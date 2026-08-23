@@ -130,6 +130,23 @@ export function multiplyCents(value: Cents, factor: number): Cents {
   return assertSafeResult(rounded, "multiplyCents");
 }
 
+/**
+ * Divides `value` by an arbitrary numeric `divisor` (e.g. splitting a
+ * balance across a day count), rounding the result HALF AWAY FROM ZERO
+ * (standard commercial rounding, not banker's rounding) to the nearest whole
+ * centavo. Throws a descriptive `Error` if `divisor` is zero or negative
+ * (division by zero or a negative divisor is never meaningful for this
+ * app's use cases). Throws on unsafe-integer overflow.
+ */
+export function divideCents(value: Cents, divisor: number): Cents {
+  if (divisor <= 0) {
+    throw new Error(`divideCents: divisor must be positive, got ${String(divisor)}`);
+  }
+  const raw = value / divisor;
+  const rounded = raw >= 0 ? Math.round(raw) : -Math.round(-raw);
+  return assertSafeResult(rounded, "divideCents");
+}
+
 /** Compares two `Cents` values: -1 if `a < b`, 0 if equal, 1 if `a > b`. */
 export function compareCents(a: Cents, b: Cents): -1 | 0 | 1 {
   if (a < b) return -1;

@@ -6,6 +6,7 @@ import {
   addCents,
   centsFromInt,
   compareCents,
+  divideCents,
   formatCents,
   isZeroCents,
   multiplyCents,
@@ -211,6 +212,56 @@ describe("multiplyCents rounding: half away from zero", () => {
 
   it("multiplies by zero to zero", () => {
     expect(multiplyCents(centsFromInt(500), 0)).toBe(0);
+  });
+});
+
+describe("divideCents rounding: half away from zero", () => {
+  it.each([
+    [100, 4, 25], // even division
+    [100, 3, 33], // 33.33... rounds down
+    [104, 3, 35], // 34.67 rounds up
+    [101, 2, 51], // exact half: 50.5 rounds away from zero to 51 (banker's would give 50)
+    [103, 2, 52], // exact half: 51.5 rounds away from zero to 52 (banker's would give 52 too, but tests the tie path)
+  ])("rounds %p / %p to %p (positive, away from zero)", (value, divisor, expected) => {
+    expect(divideCents(centsFromInt(value), divisor)).toBe(expected);
+  });
+
+  it.each([
+    [-100, 3, -33], // -33.33... rounds toward zero in magnitude, i.e. away from zero overall: -33
+    [-104, 3, -35], // -34.67 rounds to -35
+    [-101, 2, -51], // exact half, negative: -50.5 rounds away from zero to -51
+  ])("rounds %p / %p to %p (negative, away from zero)", (value, divisor, expected) => {
+    expect(divideCents(centsFromInt(value), divisor)).toBe(expected);
+  });
+
+  it("divides without rounding drama for exact results", () => {
+    expect(divideCents(centsFromInt(600), 3)).toBe(200);
+  });
+
+  it.each([
+    ["zero", 0],
+    ["a negative integer", -1],
+    ["a larger negative integer", -100],
+  ])("throws when divisor is %s (%p)", (_label, divisor) => {
+    expect(() => divideCents(centsFromInt(100), divisor)).toThrow();
+  });
+
+  it("throws a descriptive error message naming the invalid divisor", () => {
+    expect(() => divideCents(centsFromInt(100), 0)).toThrow(/divisor must be positive/);
+  });
+});
+
+describe("divideCents property-based", () => {
+  it("divideCents(multiplyCents(x, n), n) recovers x exactly for a positive integer n (x*n is already an integer, so multiplyCents introduces no rounding to undo)", () => {
+    fc.assert(
+      fc.property(
+        fc.integer({ min: -1_000_000, max: 1_000_000 }).map((n) => centsFromInt(n)),
+        fc.integer({ min: 1, max: 1000 }),
+        (x, n) => {
+          expect(divideCents(multiplyCents(x, n), n)).toBe(x);
+        },
+      ),
+    );
   });
 });
 

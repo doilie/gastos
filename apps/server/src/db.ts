@@ -39,6 +39,7 @@ import {
   categoryIdFromString,
   type CategoryId,
   centsFromInt,
+  createCreditCardBudgetEnvelope,
   createSpendableEnvelope,
   creditCardIdFromString,
   type CreditCardId,
@@ -103,6 +104,7 @@ const VISA_CARD_ID: CreditCardId = creditCardIdFromString("credit-card-visa");
 
 const PHP = currencyCodeFromString("PHP");
 const spendableEnvelope = createSpendableEnvelope([CHECKING_ACCOUNT_ID]);
+const creditCardBudgetEnvelope = createCreditCardBudgetEnvelope([CHECKING_ACCOUNT_ID]);
 
 async function seedAccounts(targetDb: Db): Promise<void> {
   await targetDb
@@ -148,6 +150,12 @@ async function seedSubEnvelopes(targetDb: Db): Promise<void> {
         groupId: null,
         isArchived: false,
       },
+      {
+        id: creditCardBudgetEnvelope.id,
+        name: creditCardBudgetEnvelope.name,
+        groupId: null,
+        isArchived: false,
+      },
     ])
     .onConflictDoNothing();
 }
@@ -158,6 +166,7 @@ async function seedSubEnvelopeAccounts(targetDb: Db): Promise<void> {
     .values([
       { subEnvelopeId: GROCERIES_FUND_ENVELOPE_ID, accountId: SAVINGS_ACCOUNT_ID },
       { subEnvelopeId: spendableEnvelope.id, accountId: CHECKING_ACCOUNT_ID },
+      { subEnvelopeId: creditCardBudgetEnvelope.id, accountId: CHECKING_ACCOUNT_ID },
     ])
     .onConflictDoNothing();
 }
@@ -165,8 +174,8 @@ async function seedSubEnvelopeAccounts(targetDb: Db): Promise<void> {
 /**
  * Idempotently inserts the fixture Reference-layer rows this app has always
  * seeded (2 accounts, 3 categories, 1 envelope group, the Groceries Fund
- * sub-envelope, and the reserved Spendable sub-envelope, plus each
- * sub-envelope's linked-account rows) — safe to call on every server start,
+ * sub-envelope, and the reserved Spendable and Credit Card Budget
+ * sub-envelopes, plus each sub-envelope's linked-account rows) — safe to call on every server start,
  * via `.onConflictDoNothing()` on each insert. Tables are seeded in FK
  * order: accounts/categories/envelope groups before the sub-envelopes that
  * reference them, sub-envelopes before the join rows that reference them.

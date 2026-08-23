@@ -77,6 +77,26 @@ export function ledgerDateFromString(value: string): LedgerDate {
 }
 
 /**
+ * Number of calendar days from `from` to `to`: positive if `to` is later,
+ * negative if `to` is earlier, zero if they're the same date. Pure calendar-
+ * day count — `LedgerDate` has no time-of-day component to begin with, so
+ * there's no DST concern; this always operates in UTC like the rest of this
+ * codebase's calendar-date math (see `previousLedgerDay`/`nextLedgerDay`).
+ * `Math.round` guards against defensive floating-point wobble, not DST.
+ */
+export function daysBetweenLedgerDates(from: LedgerDate, to: LedgerDate): number {
+  const fromParts = matchLedgerDateShape(from);
+  const toParts = matchLedgerDateShape(to);
+  if (!fromParts || !toParts) {
+    throw new Error("daysBetweenLedgerDates: expected already-validated LedgerDate values");
+  }
+  const fromUtc = Date.UTC(fromParts.year, fromParts.month - 1, fromParts.day);
+  const toUtc = Date.UTC(toParts.year, toParts.month - 1, toParts.day);
+  const MS_PER_DAY = 86400000;
+  return Math.round((toUtc - fromUtc) / MS_PER_DAY);
+}
+
+/**
  * The single write surface of the ledger. `amount` is signed: positive means
  * an inflow (credit) to this account+envelope pair, negative means an
  * outflow (debit) — this sign convention is the load-bearing invariant of

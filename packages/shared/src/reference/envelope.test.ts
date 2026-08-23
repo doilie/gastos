@@ -4,10 +4,14 @@ import { describe, expect, it } from "vitest";
 import { accountIdFromString } from "./account";
 import {
   archiveSubEnvelope,
+  createCreditCardBudgetEnvelope,
   createEnvelopeGroup,
   createSpendableEnvelope,
   createSubEnvelope,
+  CREDIT_CARD_BUDGET_ENVELOPE_ID,
+  CREDIT_CARD_BUDGET_ENVELOPE_NAME,
   envelopeGroupIdFromString,
+  isCreditCardBudgetEnvelope,
   isSpendableEnvelope,
   SPENDABLE_ENVELOPE_ID,
   SPENDABLE_ENVELOPE_NAME,
@@ -187,6 +191,22 @@ describe("createSubEnvelope", () => {
   });
 });
 
+describe("createSubEnvelope reserved-id rejection: CREDIT_CARD_BUDGET_ENVELOPE_ID", () => {
+  const groupId = envelopeGroupIdFromString("grp-1");
+  const acc1 = accountIdFromString("acc-1");
+
+  it("throws when id equals the reserved CREDIT_CARD_BUDGET_ENVELOPE_ID", () => {
+    expect(() =>
+      createSubEnvelope({
+        id: CREDIT_CARD_BUDGET_ENVELOPE_ID,
+        name: "Groceries",
+        groupId,
+        accountIds: [acc1],
+      }),
+    ).toThrow();
+  });
+});
+
 describe("updateSubEnvelope", () => {
   const id = subEnvelopeIdFromString("sub-1");
   const groupId = envelopeGroupIdFromString("grp-1");
@@ -290,6 +310,52 @@ describe("isSpendableEnvelope", () => {
   });
 });
 
+describe("createCreditCardBudgetEnvelope", () => {
+  const acc1 = accountIdFromString("acc-1");
+  const acc2 = accountIdFromString("acc-2");
+
+  it("returns the reserved SubEnvelope shape with the passed accountIds", () => {
+    const subEnvelope = createCreditCardBudgetEnvelope([acc1, acc2]);
+    expect(subEnvelope).toEqual({
+      id: CREDIT_CARD_BUDGET_ENVELOPE_ID,
+      name: CREDIT_CARD_BUDGET_ENVELOPE_NAME,
+      groupId: null,
+      accountIds: [acc1, acc2],
+      isArchived: false,
+    });
+  });
+
+  it("throws when accountIds is empty", () => {
+    expect(() => createCreditCardBudgetEnvelope([])).toThrow();
+  });
+
+  it("throws when accountIds contains a duplicate account id", () => {
+    expect(() => createCreditCardBudgetEnvelope([acc1, acc1])).toThrow();
+  });
+});
+
+describe("isCreditCardBudgetEnvelope", () => {
+  const acc1 = accountIdFromString("acc-1");
+
+  it("returns true for the result of createCreditCardBudgetEnvelope", () => {
+    expect(isCreditCardBudgetEnvelope(createCreditCardBudgetEnvelope([acc1]))).toBe(true);
+  });
+
+  it("returns false for a normal, non-reserved sub-envelope", () => {
+    const subEnvelope = createSubEnvelope({
+      id: subEnvelopeIdFromString("sub-1"),
+      name: "Groceries",
+      groupId: envelopeGroupIdFromString("grp-1"),
+      accountIds: [acc1],
+    });
+    expect(isCreditCardBudgetEnvelope(subEnvelope)).toBe(false);
+  });
+
+  it("returns false for the reserved Spendable envelope (the two reserved envelopes are distinct)", () => {
+    expect(isCreditCardBudgetEnvelope(createSpendableEnvelope([acc1]))).toBe(false);
+  });
+});
+
 describe("archiveSubEnvelope", () => {
   const id = subEnvelopeIdFromString("sub-1");
   const groupId = envelopeGroupIdFromString("grp-1");
@@ -317,6 +383,13 @@ describe("archiveSubEnvelope", () => {
     const spendable = createSpendableEnvelope([acc1]);
     expect(() => archiveSubEnvelope(spendable)).toThrow(
       'archiveSubEnvelope: id "spendable" is reserved for the Spendable envelope',
+    );
+  });
+
+  it("throws when called on the reserved Credit Card Budget envelope", () => {
+    const creditCardBudget = createCreditCardBudgetEnvelope([acc1]);
+    expect(() => archiveSubEnvelope(creditCardBudget)).toThrow(
+      'archiveSubEnvelope: id "credit-card-budget" is reserved for the Credit Card Budget envelope',
     );
   });
 });
@@ -352,5 +425,14 @@ describe("unarchiveSubEnvelope", () => {
       unarchived = unarchiveSubEnvelope(spendable);
     }).not.toThrow();
     expect(unarchived).toEqual({ ...spendable, isArchived: false });
+  });
+
+  it("does not throw when called on the reserved Credit Card Budget envelope, and no-ops to isArchived: false", () => {
+    const creditCardBudget = createCreditCardBudgetEnvelope([acc1]);
+    let unarchived: ReturnType<typeof unarchiveSubEnvelope> | undefined;
+    expect(() => {
+      unarchived = unarchiveSubEnvelope(creditCardBudget);
+    }).not.toThrow();
+    expect(unarchived).toEqual({ ...creditCardBudget, isArchived: false });
   });
 });

@@ -5,7 +5,10 @@
 // money-holding leaf entity, allocated over one or more accounts (per HLD
 // decision A1, "Envelopes are virtual allocations over accounts"). Spendable
 // is a single always-present, reserved sub-envelope with no group, tracked
-// for daily available balance. No balance field on SubEnvelope — same
+// for daily available balance. There are now two reserved singleton
+// sub-envelopes — Spendable and Credit Card Budget (the latter holds funds
+// earmarked for upcoming credit-card statement settlement) — both following
+// the identical id/name/factory/guard pattern below. No balance field on SubEnvelope — same
 // rationale as `Account` (balances are always derived, decision A3).
 
 import type { AccountId } from "./account";
@@ -65,6 +68,13 @@ export const SPENDABLE_ENVELOPE_ID: SubEnvelopeId = subEnvelopeIdFromString("spe
 /** The display name for the always-present Spendable envelope. */
 export const SPENDABLE_ENVELOPE_NAME = "Spendable";
 
+/** The single reserved identifier for the always-present Credit Card Budget envelope. */
+export const CREDIT_CARD_BUDGET_ENVELOPE_ID: SubEnvelopeId =
+  subEnvelopeIdFromString("credit-card-budget");
+
+/** The display name for the always-present Credit Card Budget envelope. */
+export const CREDIT_CARD_BUDGET_ENVELOPE_NAME = "Credit Card Budget";
+
 function assertNonEmptyName(name: string, context: string): string {
   const trimmed = name.trim();
   if (trimmed.length === 0) {
@@ -107,7 +117,8 @@ function assertNonEmptyAccountIds(
 /**
  * Factory/validator for a user-created `SubEnvelope`: trims and validates
  * `name` is non-empty; validates `accountIds` is non-empty and contains no
- * duplicates; rejects `id` equal to the reserved `SPENDABLE_ENVELOPE_ID`.
+ * duplicates; rejects `id` equal to the reserved `SPENDABLE_ENVELOPE_ID` or
+ * `CREDIT_CARD_BUDGET_ENVELOPE_ID`.
  */
 export function createSubEnvelope(input: {
   id: SubEnvelopeId;
@@ -117,6 +128,11 @@ export function createSubEnvelope(input: {
 }): SubEnvelope {
   if (input.id === SPENDABLE_ENVELOPE_ID) {
     throw new Error('createSubEnvelope: id "spendable" is reserved for the Spendable envelope');
+  }
+  if (input.id === CREDIT_CARD_BUDGET_ENVELOPE_ID) {
+    throw new Error(
+      'createSubEnvelope: id "credit-card-budget" is reserved for the Credit Card Budget envelope',
+    );
   }
   return {
     id: input.id,
@@ -187,17 +203,42 @@ export function isSpendableEnvelope(subEnvelope: SubEnvelope): boolean {
 }
 
 /**
+ * Builds the singleton Credit Card Budget envelope: reserved id/name, no
+ * group, allocated over the given accounts (validated same as
+ * `createSubEnvelope`).
+ */
+export function createCreditCardBudgetEnvelope(accountIds: readonly AccountId[]): SubEnvelope {
+  return {
+    id: CREDIT_CARD_BUDGET_ENVELOPE_ID,
+    name: CREDIT_CARD_BUDGET_ENVELOPE_NAME,
+    groupId: null,
+    accountIds: assertNonEmptyAccountIds(accountIds, "createCreditCardBudgetEnvelope"),
+    isArchived: false,
+  };
+}
+
+/** Returns whether `subEnvelope` is the reserved Credit Card Budget envelope. */
+export function isCreditCardBudgetEnvelope(subEnvelope: SubEnvelope): boolean {
+  return subEnvelope.id === CREDIT_CARD_BUDGET_ENVELOPE_ID;
+}
+
+/**
  * Marks `subEnvelope` as archived (`isArchived: true`). This is the
  * "delete" for a sub-envelope per repo convention: a hard delete would break
  * referential integrity for historical `Transaction.subEnvelopeId` values,
  * so archiving (hiding, not removing) is used instead — mirrors
- * `archiveAccount`. Throws if `subEnvelope` is the reserved Spendable
- * envelope — it can never be archived. Touches only `isArchived` — nothing
- * else on `subEnvelope` changes.
+ * `archiveAccount`. Throws if `subEnvelope` is the reserved Spendable or
+ * Credit Card Budget envelope — neither can ever be archived. Touches only
+ * `isArchived` — nothing else on `subEnvelope` changes.
  */
 export function archiveSubEnvelope(subEnvelope: SubEnvelope): SubEnvelope {
   if (subEnvelope.id === SPENDABLE_ENVELOPE_ID) {
     throw new Error('archiveSubEnvelope: id "spendable" is reserved for the Spendable envelope');
+  }
+  if (subEnvelope.id === CREDIT_CARD_BUDGET_ENVELOPE_ID) {
+    throw new Error(
+      'archiveSubEnvelope: id "credit-card-budget" is reserved for the Credit Card Budget envelope',
+    );
   }
   return { ...subEnvelope, isArchived: true };
 }
