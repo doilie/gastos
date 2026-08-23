@@ -94,27 +94,28 @@ async function resolveTransactionInput(input: AddTransactionInput): Promise<{
  * both are just a `Transaction` against some `accountId`+`subEnvelopeId`).
  */
 export const ledgerRouter = router({
-  transactions: publicProcedure.query(() => getTransactions()),
-  spendableBalance: publicProcedure.query(() =>
-    deriveSubEnvelopeBalance(getTransactions(), SPENDABLE_ENVELOPE_ID),
+  transactions: publicProcedure.query(async () => getTransactions()),
+  spendableBalance: publicProcedure.query(async () =>
+    deriveSubEnvelopeBalance(await getTransactions(), SPENDABLE_ENVELOPE_ID),
   ),
   accountBalance: publicProcedure
     .input(z.object({ accountId: z.string() }))
     .query(async ({ input }) => {
       const accountId: AccountId = accountIdFromString(input.accountId);
-      assertIdExists(await getAccounts(), accountId, `Account "${accountId}" not found`);
-      return deriveAccountBalance(getTransactions(), accountId);
+      const [accounts, transactions] = await Promise.all([getAccounts(), getTransactions()]);
+      assertIdExists(accounts, accountId, `Account "${accountId}" not found`);
+      return deriveAccountBalance(transactions, accountId);
     }),
   subEnvelopeBalance: publicProcedure
     .input(z.object({ subEnvelopeId: z.string() }))
     .query(async ({ input }) => {
       const subEnvelopeId: SubEnvelopeId = subEnvelopeIdFromString(input.subEnvelopeId);
-      assertIdExists(
-        await getSubEnvelopes(),
-        subEnvelopeId,
-        `Sub-envelope "${subEnvelopeId}" not found`,
-      );
-      return deriveSubEnvelopeBalance(getTransactions(), subEnvelopeId);
+      const [subEnvelopes, transactions] = await Promise.all([
+        getSubEnvelopes(),
+        getTransactions(),
+      ]);
+      assertIdExists(subEnvelopes, subEnvelopeId, `Sub-envelope "${subEnvelopeId}" not found`);
+      return deriveSubEnvelopeBalance(transactions, subEnvelopeId);
     }),
   addTransaction: publicProcedure
     .input(addTransactionInputSchema)
@@ -129,7 +130,7 @@ export const ledgerRouter = router({
         subEnvelopeId,
         amount: parseCents(input.amount),
       });
-      addTransaction(transaction);
+      await addTransaction(transaction);
       return transaction;
     }),
 });

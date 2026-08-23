@@ -1,7 +1,7 @@
 // Drizzle schema for the Domain layer (packages/shared/src/domain/**). See
 // reference.ts for the column-type conventions this file follows.
 
-import { date, integer, pgTable, text } from "drizzle-orm/pg-core";
+import { boolean, date, integer, pgTable, text } from "drizzle-orm/pg-core";
 
 import { accounts, categories, creditCards, subEnvelopes } from "./reference";
 
@@ -41,7 +41,9 @@ export const cardPurchases = pgTable("card_purchases", {
  * itself a ledger posting. `budgetPeriod: {year, month}` is flattened into
  * two integer columns since a `BudgetPeriod` is a pure derived value with no
  * id of its own (packages/shared/src/domain/budget-period.ts), not a
- * separate referenceable entity.
+ * separate referenceable entity. `isApplied` mirrors `BudgetLine.isApplied`
+ * (Increment 50) — whether this line has already been posted into the
+ * ledger via `applyBudgetLine`, preventing double-posting.
  */
 export const budgetLines = pgTable("budget_lines", {
   id: text("id").primaryKey(),
@@ -53,4 +55,5 @@ export const budgetLines = pgTable("budget_lines", {
     .references(() => subEnvelopes.id),
   amount: integer("amount").notNull(),
   description: text("description").notNull(),
+  isApplied: boolean("is_applied").notNull(),
 });

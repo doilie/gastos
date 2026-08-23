@@ -5,8 +5,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // Postgres-backed Reference-layer tables at handler-call time, so this file
 // needs its own ephemeral, migrated, seeded testcontainers Postgres before
 // importing `buildServer`, per the gastos-coder-documented conversion
-// recipe. getCardPurchases/getCreditCards themselves remain synchronous and
-// unaffected, but still come from the same dynamically-imported `../store`
+// recipe. getCardPurchases/getCreditCards are now also Postgres-backed
+// (async), and still come from the same dynamically-imported `../store`
 // module since it can't be statically imported before DATABASE_URL is set.
 let container: StartedPostgreSqlContainer;
 let buildServer: typeof import("../index").buildServer;
@@ -20,6 +20,7 @@ beforeAll(async () => {
   const dbModule = await import("../db");
   await dbModule.runMigrations(dbModule.db);
   await dbModule.seedReferenceData(dbModule.db);
+  await dbModule.seedRemainingFixtureData(dbModule.db);
 
   ({ buildServer } = await import("../index"));
   ({ getCardPurchases, getCreditCards } = await import("../store"));
@@ -124,14 +125,14 @@ describe("cards router — read-only queries", () => {
   it("cards.creditCards returns exactly what store.getCreditCards() returns", async () => {
     const app = buildServer();
     const data = await queryCards(app, "creditCards");
-    expect(data).toEqual(getCreditCards());
+    expect(data).toEqual(await getCreditCards());
     await app.close();
   });
 
   it("cards.cardPurchases returns exactly what store.getCardPurchases() returns", async () => {
     const app = buildServer();
     const data = await queryCards(app, "cardPurchases");
-    expect(data).toEqual(getCardPurchases());
+    expect(data).toEqual(await getCardPurchases());
     await app.close();
   });
 });

@@ -20,6 +20,7 @@ beforeAll(async () => {
   const dbModule = await import("../db");
   await dbModule.runMigrations(dbModule.db);
   await dbModule.seedReferenceData(dbModule.db);
+  await dbModule.seedRemainingFixtureData(dbModule.db);
 
   ({ buildServer } = await import("../index"));
   ({ getAccounts, getCategories, getEnvelopeGroups, getSubEnvelopes } = await import("../store"));

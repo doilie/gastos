@@ -42,10 +42,15 @@ function assertIdExists(
 /**
  * Looks up the `CardPurchase` for `purchaseId`, throwing `NOT_FOUND` if
  * missing. Factored out of the `settleCardPurchase` mutation to keep it
- * under the complexity/length caps.
+ * under the complexity/length caps. Takes the already-fetched
+ * `cardPurchases` list as a parameter (fetched once by the caller) rather
+ * than calling `getCardPurchases()` itself.
  */
-function findCardPurchase(purchaseId: string): CardPurchase {
-  const purchase = getCardPurchases().find((candidate) => candidate.id === purchaseId);
+function findCardPurchase(
+  purchaseId: string,
+  cardPurchases: readonly CardPurchase[],
+): CardPurchase {
+  const purchase = cardPurchases.find((candidate) => candidate.id === purchaseId);
   if (purchase === undefined) {
     throw new TRPCError({ code: "NOT_FOUND", message: `Card purchase "${purchaseId}" not found` });
   }
@@ -86,14 +91,16 @@ function resolveFundingSubEnvelope(
  * `subEnvelopeId` against the seeded stores (`NOT_FOUND` for any miss), and
  * builds a `purchaseId -> {accountId, subEnvelopeId}` lookup for
  * `buildSettleCycleResolver` to consult. Takes the already-fetched
- * `accounts`/`subEnvelopes` lists as parameters (fetched once by the
- * caller) rather than calling `getAccounts()`/`getSubEnvelopes()` in a
- * loop. Mirrors `budget.ts`'s `parseAndValidateApplications`.
+ * `accounts`/`subEnvelopes`/`cardPurchases` lists as parameters (fetched
+ * once by the caller) rather than calling
+ * `getAccounts()`/`getSubEnvelopes()`/`getCardPurchases()` in a loop.
+ * Mirrors `budget.ts`'s `parseAndValidateApplications`.
  */
 function parseAndValidateSettlements(
   settlements: readonly { purchaseId: string; accountId: string; subEnvelopeId: string }[],
   accounts: readonly Account[],
   subEnvelopes: readonly SubEnvelope[],
+  cardPurchases: readonly CardPurchase[],
 ): Map<CardPurchaseId, { accountId: AccountId; subEnvelopeId: SubEnvelopeId }> {
   const settlementsByPurchaseId = new Map<
     CardPurchaseId,
@@ -102,7 +109,7 @@ function parseAndValidateSettlements(
 
   for (const settlement of settlements) {
     const purchaseId = cardPurchaseIdFromString(settlement.purchaseId);
-    assertIdExists(getCardPurchases(), purchaseId, `Card purchase "${purchaseId}" not found`);
+    assertIdExists(cardPurchases, purchaseId, `Card purchase "${purchaseId}" not found`);
 
     const accountId = accountIdFromString(settlement.accountId);
     assertIdExists(accounts, accountId, `Account "${accountId}" not found`);
@@ -180,8 +187,8 @@ function buildSettleCycleResolver(
  * `@gastos/shared` directly against the raw data returned here.
  */
 export const cardsRouter = router({
-  creditCards: publicProcedure.query(() => getCreditCards()),
-  cardPurchases: publicProcedure.query(() => getCardPurchases()),
+  creditCards: publicProcedure.query(async () => getCreditCards()),
+  cardPurchases: publicProcedure.query(async () => getCardPurchases()),
   settleCardPurchase: publicProcedure
     .input(
       z.object({
@@ -191,8 +198,12 @@ export const cardsRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const purchase = findCardPurchase(input.purchaseId);
-      const [accounts, subEnvelopes] = await Promise.all([getAccounts(), getSubEnvelopes()]);
+      const [accounts, subEnvelopes, cardPurchases] = await Promise.all([
+        getAccounts(),
+        getSubEnvelopes(),
+        getCardPurchases(),
+      ]);
+      const purchase = findCardPurchase(input.purchaseId, cardPurchases);
 
       const accountId: AccountId = accountIdFromString(input.accountId);
       assertIdExists(accounts, accountId, `Account "${accountId}" not found`);
@@ -208,7 +219,7 @@ export const cardsRouter = router({
         subEnvelopeId,
         ...(fundingSubEnvelope === undefined ? {} : { fundingSubEnvelope }),
       });
-      addTransaction(transaction);
+      await addTransaction(transaction);
       return transaction;
     }),
   settleCardCycle: publicProcedure
@@ -227,8 +238,14 @@ export const cardsRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      assertIdExists(
+      const [accounts, subEnvelopes, creditCards, allCardPurchases] = await Promise.all([
+        getAccounts(),
+        getSubEnvelopes(),
         getCreditCards(),
+        getCardPurchases(),
+      ]);
+      assertIdExists(
+        creditCards,
         input.creditCardId,
         `Credit card "${input.creditCardId}" not found`,
       );
@@ -238,16 +255,22 @@ export const cardsRouter = router({
         end: ledgerDateFromString(input.cycleEnd),
       };
 
-      const [accounts, subEnvelopes] = await Promise.all([getAccounts(), getSubEnvelopes()]);
-      const settlements = parseAndValidateSettlements(input.settlements, accounts, subEnvelopes);
+      const settlements = parseAndValidateSettlements(
+        input.settlements,
+        accounts,
+        subEnvelopes,
+        allCardPurchases,
+      );
       const resolver = buildSettleCycleResolver(settlements, subEnvelopes);
 
-      const cardPurchases = getCardPurchases().filter(
+      const cardPurchases = allCardPurchases.filter(
         (purchase) => purchase.creditCardId === input.creditCardId,
       );
 
       const result = settleCardCycleInLedger(cardPurchases, cycle, resolver);
-      result.settledTransactions.forEach(addTransaction);
+      for (const transaction of result.settledTransactions) {
+        await addTransaction(transaction);
+      }
 
       return {
         settledTransactions: result.settledTransactions,

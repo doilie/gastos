@@ -187,9 +187,13 @@ export const referenceRouter = router({
         throw new TRPCError({ code: "NOT_FOUND", message: `Category "${id}" not found` });
       }
 
+      const [transactions, cardPurchases] = await Promise.all([
+        getTransactions(),
+        getCardPurchases(),
+      ]);
       const isReferenced =
-        getTransactions().some((transaction) => transaction.categoryId === id) ||
-        getCardPurchases().some((purchase) => purchase.categoryId === id);
+        transactions.some((transaction) => transaction.categoryId === id) ||
+        cardPurchases.some((purchase) => purchase.categoryId === id);
       if (isReferenced) {
         throw new TRPCError({
           code: "BAD_REQUEST",

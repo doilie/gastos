@@ -142,6 +142,7 @@ async function insertBudgetLine(db: Db, subEnvelopeId: string): Promise<string> 
     subEnvelopeId,
     amount: 2000,
     description: "Test allocation",
+    isApplied: false,
   };
   await db.insert(budgetLines).values(row);
   const [found] = await db.select().from(budgetLines).where(eq(budgetLines.id, id));

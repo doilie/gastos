@@ -5,8 +5,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // Postgres-backed Reference-layer tables at handler-call time, so this file
 // needs its own ephemeral, migrated, seeded testcontainers Postgres before
 // importing `buildServer`, per the gastos-coder-documented conversion
-// recipe. getBudgetLines/getPaydaySchedules themselves remain synchronous
-// and unaffected, but still come from the same dynamically-imported `../store`
+// recipe. getBudgetLines/getPaydaySchedules are now also Postgres-backed
+// (async), and still come from the same dynamically-imported `../store`
 // module since it can't be statically imported before DATABASE_URL is set.
 let container: StartedPostgreSqlContainer;
 let buildServer: typeof import("../index").buildServer;
@@ -20,6 +20,7 @@ beforeAll(async () => {
   const dbModule = await import("../db");
   await dbModule.runMigrations(dbModule.db);
   await dbModule.seedReferenceData(dbModule.db);
+  await dbModule.seedRemainingFixtureData(dbModule.db);
 
   ({ buildServer } = await import("../index"));
   ({ getBudgetLines, getPaydaySchedules } = await import("../store"));
@@ -138,14 +139,14 @@ describe("budget router", () => {
   it("budget.paydaySchedules returns exactly what store.getPaydaySchedules() returns", async () => {
     const app = buildServer();
     const data = await queryBudget(app, "paydaySchedules");
-    expect(data).toEqual(getPaydaySchedules());
+    expect(data).toEqual(await getPaydaySchedules());
     await app.close();
   });
 
   it("budget.budgetLines returns exactly what store.getBudgetLines() returns", async () => {
     const app = buildServer();
     const data = await queryBudget(app, "budgetLines");
-    expect(data).toEqual(getBudgetLines());
+    expect(data).toEqual(await getBudgetLines());
     await app.close();
   });
 });
@@ -292,10 +293,11 @@ describe("budget.applyBudgetLines — empty/no-op batch", () => {
       applications: [],
     });
 
+    const seededLines = await getBudgetLines();
     expect(data.appliedTransactions).toHaveLength(0);
-    expect(data.skippedLines).toHaveLength(getBudgetLines().length);
+    expect(data.skippedLines).toHaveLength(seededLines.length);
     const skippedIds = data.skippedLines.map((line) => (line as { id: string }).id);
-    for (const line of getBudgetLines()) {
+    for (const line of seededLines) {
       expect(skippedIds).toContain(line.id);
     }
     await app.close();

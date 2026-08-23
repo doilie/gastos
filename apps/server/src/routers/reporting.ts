@@ -15,10 +15,11 @@ import { buildCategorySpendingReport } from "../reporting/category-spending";
 export const reportingRouter = router({
   categorySpending: publicProcedure
     .input(z.object({ year: z.number().int(), month: z.number().int().min(1).max(12) }))
-    .query(async ({ input }) =>
-      buildCategorySpendingReport(getTransactions(), await getCategories(), {
+    .query(async ({ input }) => {
+      const [transactions, categories] = await Promise.all([getTransactions(), getCategories()]);
+      return buildCategorySpendingReport(transactions, categories, {
         year: input.year,
         month: input.month,
-      }),
-    ),
+      });
+    }),
 });

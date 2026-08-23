@@ -1,0 +1,1 @@
+ALTER TABLE "budget_lines" ADD COLUMN "is_applied" boolean NOT NULL;

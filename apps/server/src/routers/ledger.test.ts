@@ -12,9 +12,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 // against Postgres-backed Reference-layer tables at handler-call time, so
 // this file needs its own ephemeral, migrated, seeded testcontainers
 // Postgres before importing `buildServer`, per the gastos-coder-documented
-// conversion recipe. getTransactions itself remains synchronous and
-// unaffected, but still comes from the same dynamically-imported `../store`
-// module since it can't be statically imported before DATABASE_URL is set.
+// conversion recipe. getTransactions is now also Postgres-backed (async),
+// and still comes from the same dynamically-imported `../store` module
+// since it can't be statically imported before DATABASE_URL is set.
 let container: StartedPostgreSqlContainer;
 let buildServer: typeof import("../index").buildServer;
 let getTransactions: typeof import("../store").getTransactions;
@@ -26,6 +26,7 @@ beforeAll(async () => {
   const dbModule = await import("../db");
   await dbModule.runMigrations(dbModule.db);
   await dbModule.seedReferenceData(dbModule.db);
+  await dbModule.seedRemainingFixtureData(dbModule.db);
 
   ({ buildServer } = await import("../index"));
   ({ getTransactions } = await import("../store"));
@@ -185,7 +186,7 @@ describe("ledger.transactions", () => {
   it("returns exactly what store.getTransactions() returns", async () => {
     const app = buildServer();
     const data = await queryLedger(app, "transactions");
-    expect(data).toEqual(getTransactions());
+    expect(data).toEqual(await getTransactions());
     await app.close();
   });
 });
@@ -197,7 +198,7 @@ describe("ledger.spendableBalance", () => {
     // Computed independently from getTransactions() here rather than reused
     // from the router's own implementation, so this is a real assertion
     // about what the endpoint returns, not a tautology.
-    const expectedBalance = deriveSubEnvelopeBalance(getTransactions(), SPENDABLE_ENVELOPE_ID);
+    const expectedBalance = deriveSubEnvelopeBalance(await getTransactions(), SPENDABLE_ENVELOPE_ID);
     expect(data).toBe(expectedBalance);
     await app.close();
   });
@@ -213,7 +214,7 @@ describe("ledger.accountBalance", () => {
     // from the router's own implementation, so this is a real assertion
     // about what the endpoint returns, not a tautology.
     const expectedBalance = deriveAccountBalance(
-      getTransactions(),
+      await getTransactions(),
       accountIdFromString("account-checking"),
     );
     expect(data).toBe(expectedBalance);
@@ -245,7 +246,7 @@ describe("ledger.subEnvelopeBalance", () => {
     const data = await queryLedgerWithInput<number>(app, "subEnvelopeBalance", {
       subEnvelopeId: SPENDABLE_ENVELOPE_ID,
     });
-    const expectedBalance = deriveSubEnvelopeBalance(getTransactions(), SPENDABLE_ENVELOPE_ID);
+    const expectedBalance = deriveSubEnvelopeBalance(await getTransactions(), SPENDABLE_ENVELOPE_ID);
     expect(data).toBe(expectedBalance);
     await app.close();
   });
@@ -257,7 +258,7 @@ describe("ledger.subEnvelopeBalance", () => {
     });
     // Proves this isn't special-cased for the reserved Spendable singleton.
     const expectedBalance = deriveSubEnvelopeBalance(
-      getTransactions(),
+      await getTransactions(),
       subEnvelopeIdFromString("sub-envelope-groceries-fund"),
     );
     expect(data).toBe(expectedBalance);

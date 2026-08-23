@@ -72,16 +72,19 @@ function findFundingSubEnvelope(
  * Looks up the `BudgetLine` for `budgetLineId` and the `SubEnvelope` it
  * targets, throwing `NOT_FOUND` for either miss. Factored out of the
  * `applyBudgetLine` mutation to keep it under the complexity/length caps.
+ * Takes the already-fetched `budgetLines` list as a parameter (fetched once
+ * by the caller) rather than calling `getBudgetLines()` itself.
  */
 function resolveBudgetLineAndSubEnvelope(
   budgetLineId: string,
+  budgetLines: readonly BudgetLine[],
   subEnvelopes: readonly SubEnvelope[],
 ): {
   line: BudgetLine;
   fundingSubEnvelope: SubEnvelope;
 } {
   const id = budgetLineIdFromString(budgetLineId);
-  const line = getBudgetLines().find((candidate) => candidate.id === id);
+  const line = budgetLines.find((candidate) => candidate.id === id);
   if (line === undefined) {
     throw new TRPCError({ code: "NOT_FOUND", message: `BudgetLine "${id}" not found` });
   }
@@ -93,20 +96,21 @@ function resolveBudgetLineAndSubEnvelope(
  * Validates every `{ budgetLineId, accountId }` pair in `applications`
  * against the seeded stores (`NOT_FOUND` for either miss), and builds a
  * `budgetLineId -> accountId` lookup for `buildApplyResolver` to consult.
- * Takes the already-fetched `accounts` list as a parameter (fetched once by
- * the caller) rather than calling `getAccounts()` itself in a loop.
- * Factored out of `applyBudgetLines` to keep it under the complexity/length
- * caps.
+ * Takes the already-fetched `accounts`/`budgetLines` lists as parameters
+ * (fetched once by the caller) rather than calling
+ * `getAccounts()`/`getBudgetLines()` itself in a loop. Factored out of
+ * `applyBudgetLines` to keep it under the complexity/length caps.
  */
 function parseAndValidateApplications(
   applications: readonly { budgetLineId: string; accountId: string }[],
   accounts: readonly Account[],
+  budgetLines: readonly BudgetLine[],
 ): Map<BudgetLineId, AccountId> {
   const applicationsByLineId = new Map<BudgetLineId, AccountId>();
 
   for (const application of applications) {
     const budgetLineId = budgetLineIdFromString(application.budgetLineId);
-    assertIdExists(getBudgetLines(), budgetLineId, `BudgetLine "${budgetLineId}" not found`);
+    assertIdExists(budgetLines, budgetLineId, `BudgetLine "${budgetLineId}" not found`);
 
     const accountId = accountIdFromString(application.accountId);
     assertIdExists(accounts, accountId, `Account "${accountId}" not found`);
@@ -172,14 +176,19 @@ function buildApplyResolver(
  * `skippedLines` instead of erroring or double-posting.
  */
 export const budgetRouter = router({
-  paydaySchedules: publicProcedure.query(() => getPaydaySchedules()),
-  budgetLines: publicProcedure.query(() => getBudgetLines()),
+  paydaySchedules: publicProcedure.query(async () => getPaydaySchedules()),
+  budgetLines: publicProcedure.query(async () => getBudgetLines()),
   applyBudgetLine: publicProcedure
     .input(z.object({ budgetLineId: z.string(), accountId: z.string() }))
     .mutation(async ({ input }) => {
-      const [accounts, subEnvelopes] = await Promise.all([getAccounts(), getSubEnvelopes()]);
+      const [accounts, subEnvelopes, budgetLines] = await Promise.all([
+        getAccounts(),
+        getSubEnvelopes(),
+        getBudgetLines(),
+      ]);
       const { line, fundingSubEnvelope } = resolveBudgetLineAndSubEnvelope(
         input.budgetLineId,
+        budgetLines,
         subEnvelopes,
       );
 
@@ -191,8 +200,8 @@ export const budgetRouter = router({
         accountId,
         fundingSubEnvelope,
       });
-      addTransaction(transaction);
-      replaceBudgetLine(markBudgetLineApplied(line));
+      await addTransaction(transaction);
+      await replaceBudgetLine(markBudgetLineApplied(line));
       return transaction;
     }),
   applyBudgetLines: publicProcedure
@@ -202,14 +211,22 @@ export const budgetRouter = router({
       }),
     )
     .mutation(async ({ input }) => {
-      const [accounts, subEnvelopes] = await Promise.all([getAccounts(), getSubEnvelopes()]);
-      const applications = parseAndValidateApplications(input.applications, accounts);
+      const [accounts, subEnvelopes, budgetLines] = await Promise.all([
+        getAccounts(),
+        getSubEnvelopes(),
+        getBudgetLines(),
+      ]);
+      const applications = parseAndValidateApplications(input.applications, accounts, budgetLines);
       const appliedLines: BudgetLine[] = [];
       const resolver = buildApplyResolver(applications, appliedLines, subEnvelopes);
 
-      const result = applyBudgetLinesToLedger(getBudgetLines(), resolver);
-      result.appliedTransactions.forEach(addTransaction);
-      appliedLines.forEach((line) => replaceBudgetLine(markBudgetLineApplied(line)));
+      const result = applyBudgetLinesToLedger(budgetLines, resolver);
+      for (const transaction of result.appliedTransactions) {
+        await addTransaction(transaction);
+      }
+      for (const line of appliedLines) {
+        await replaceBudgetLine(markBudgetLineApplied(line));
+      }
 
       return { appliedTransactions: result.appliedTransactions, skippedLines: result.skippedLines };
     }),

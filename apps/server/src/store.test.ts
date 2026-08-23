@@ -12,13 +12,13 @@ import {
 } from "@gastos/shared";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-// getAccounts/getCategories/getEnvelopeGroups/getSubEnvelopes are now
-// Postgres-backed (async) — this file needs its own ephemeral, migrated,
-// seeded testcontainers Postgres before importing `./store`, per the
-// gastos-coder-documented conversion recipe. getBudgetLines/getCardPurchases/
-// getCreditCards/getPaydaySchedules/getTransactions remain synchronous and
-// unaffected, but still come from the same dynamically-imported module since
-// `./store` as a whole can't be statically imported before DATABASE_URL is set.
+// All 9 store getters (getAccounts/getBudgetLines/getCardPurchases/
+// getCategories/getCreditCards/getEnvelopeGroups/getPaydaySchedules/
+// getSubEnvelopes/getTransactions) are now Postgres-backed (async) — this
+// file needs its own ephemeral, migrated, seeded testcontainers Postgres
+// before importing `./store`, per the gastos-coder-documented conversion
+// recipe. `./store` as a whole can't be statically imported before
+// DATABASE_URL is set.
 let container: StartedPostgreSqlContainer;
 let getAccounts: typeof import("./store").getAccounts;
 let getBudgetLines: typeof import("./store").getBudgetLines;
@@ -37,6 +37,7 @@ beforeAll(async () => {
   const dbModule = await import("./db");
   await dbModule.runMigrations(dbModule.db);
   await dbModule.seedReferenceData(dbModule.db);
+  await dbModule.seedRemainingFixtureData(dbModule.db);
 
   ({
     getAccounts,
@@ -117,21 +118,21 @@ describe("store: referential integrity", () => {
 
   it("every Transaction.accountId corresponds to a real seeded account", async () => {
     const accountIds = new Set((await getAccounts()).map((account) => account.id));
-    for (const transaction of getTransactions()) {
+    for (const transaction of await getTransactions()) {
       expect(accountIds).toContain(transaction.accountId);
     }
   });
 
   it("every Transaction.subEnvelopeId corresponds to a real seeded sub-envelope", async () => {
     const subEnvelopeIds = new Set((await getSubEnvelopes()).map((subEnvelope) => subEnvelope.id));
-    for (const transaction of getTransactions()) {
+    for (const transaction of await getTransactions()) {
       expect(subEnvelopeIds).toContain(transaction.subEnvelopeId);
     }
   });
 
   it("every non-null Transaction.categoryId corresponds to a real seeded category", async () => {
     const categoryIds = new Set((await getCategories()).map((category) => category.id));
-    for (const transaction of getTransactions()) {
+    for (const transaction of await getTransactions()) {
       if (transaction.categoryId !== null) {
         expect(categoryIds).toContain(transaction.categoryId);
       }
@@ -140,18 +141,18 @@ describe("store: referential integrity", () => {
 });
 
 describe("store: credit cards", () => {
-  it("returns exactly 1 credit card", () => {
-    expect(getCreditCards()).toHaveLength(1);
+  it("returns exactly 1 credit card", async () => {
+    expect(await getCreditCards()).toHaveLength(1);
   });
 });
 
 describe("store: card purchases", () => {
-  it("returns exactly 3 card purchases", () => {
-    expect(getCardPurchases()).toHaveLength(3);
+  it("returns exactly 3 card purchases", async () => {
+    expect(await getCardPurchases()).toHaveLength(3);
   });
 
-  it("includes exactly one of each FundingSource kind (account/envelope/none)", () => {
-    const purchases = getCardPurchases();
+  it("includes exactly one of each FundingSource kind (account/envelope/none)", async () => {
+    const purchases = await getCardPurchases();
     const accountFunded = purchases.filter((purchase) =>
       isAccountFundingSource(purchase.fundingSource),
     );
@@ -167,16 +168,16 @@ describe("store: card purchases", () => {
 });
 
 describe("store: credit-card referential integrity", () => {
-  it("every CardPurchase.creditCardId corresponds to a real seeded credit card", () => {
-    const creditCardIds = new Set(getCreditCards().map((creditCard) => creditCard.id));
-    for (const purchase of getCardPurchases()) {
+  it("every CardPurchase.creditCardId corresponds to a real seeded credit card", async () => {
+    const creditCardIds = new Set((await getCreditCards()).map((creditCard) => creditCard.id));
+    for (const purchase of await getCardPurchases()) {
       expect(creditCardIds).toContain(purchase.creditCardId);
     }
   });
 
   it("every non-null CardPurchase.categoryId corresponds to a real seeded category", async () => {
     const categoryIds = new Set((await getCategories()).map((category) => category.id));
-    for (const purchase of getCardPurchases()) {
+    for (const purchase of await getCardPurchases()) {
       if (purchase.categoryId !== null) {
         expect(categoryIds).toContain(purchase.categoryId);
       }
@@ -185,7 +186,7 @@ describe("store: credit-card referential integrity", () => {
 
   it("every account-funded CardPurchase.fundingSource.accountId corresponds to a real seeded account", async () => {
     const accountIds = new Set((await getAccounts()).map((account) => account.id));
-    for (const purchase of getCardPurchases()) {
+    for (const purchase of await getCardPurchases()) {
       if (isAccountFundingSource(purchase.fundingSource)) {
         expect(accountIds).toContain(purchase.fundingSource.accountId);
       }
@@ -194,7 +195,7 @@ describe("store: credit-card referential integrity", () => {
 
   it("every envelope-funded CardPurchase.fundingSource.subEnvelopeId corresponds to a real seeded sub-envelope", async () => {
     const subEnvelopeIds = new Set((await getSubEnvelopes()).map((subEnvelope) => subEnvelope.id));
-    for (const purchase of getCardPurchases()) {
+    for (const purchase of await getCardPurchases()) {
       if (isEnvelopeFundingSource(purchase.fundingSource)) {
         expect(subEnvelopeIds).toContain(purchase.fundingSource.subEnvelopeId);
       }
@@ -203,10 +204,10 @@ describe("store: credit-card referential integrity", () => {
 });
 
 describe("store: sign-convention sanity check (derived balances)", () => {
-  it("derives the Spendable envelope's balance from seeded transactions", () => {
+  it("derives the Spendable envelope's balance from seeded transactions", async () => {
     // txn-salary +5000000, txn-groceries-1 -120050, txn-transport-1 -5000,
     // txn-groceries-2 -84000 => 5000000 - 120050 - 5000 - 84000 = 4790950
-    const balance = deriveSubEnvelopeBalance(getTransactions(), SPENDABLE_ENVELOPE_ID);
+    const balance = deriveSubEnvelopeBalance(await getTransactions(), SPENDABLE_ENVELOPE_ID);
     expect(balance).toBe(centsFromInt(4790950));
   });
 
@@ -217,41 +218,41 @@ describe("store: sign-convention sanity check (derived balances)", () => {
     expect(subEnvelopeIds).toContain(groceriesFundId);
 
     // Only txn-groceries-fund-allocation touches this envelope: +300000
-    const balance = deriveSubEnvelopeBalance(getTransactions(), groceriesFundId);
+    const balance = deriveSubEnvelopeBalance(await getTransactions(), groceriesFundId);
     expect(balance).toBe(centsFromInt(300000));
   });
 });
 
 describe("store: payday schedules", () => {
-  it("returns exactly 1 payday schedule", () => {
-    expect(getPaydaySchedules()).toHaveLength(1);
+  it("returns exactly 1 payday schedule", async () => {
+    expect(await getPaydaySchedules()).toHaveLength(1);
   });
 });
 
 describe("store: budget lines", () => {
-  it("returns exactly 2 budget lines", () => {
-    expect(getBudgetLines()).toHaveLength(2);
+  it("returns exactly 2 budget lines", async () => {
+    expect(await getBudgetLines()).toHaveLength(2);
   });
 });
 
 describe("store: budget referential integrity", () => {
   it("every BudgetLine.subEnvelopeId corresponds to a real seeded sub-envelope", async () => {
     const subEnvelopeIds = new Set((await getSubEnvelopes()).map((subEnvelope) => subEnvelope.id));
-    for (const line of getBudgetLines()) {
+    for (const line of await getBudgetLines()) {
       expect(subEnvelopeIds).toContain(line.subEnvelopeId);
     }
   });
 });
 
 describe("store: budget seed-data sanity check", () => {
-  it("every seeded BudgetLine.paydayDate actually is a payday under the seeded default PaydaySchedule", () => {
-    const [defaultSchedule] = getPaydaySchedules();
+  it("every seeded BudgetLine.paydayDate actually is a payday under the seeded default PaydaySchedule", async () => {
+    const [defaultSchedule] = await getPaydaySchedules();
     expect(defaultSchedule).toBeDefined();
     if (defaultSchedule === undefined) {
       return;
     }
 
-    for (const line of getBudgetLines()) {
+    for (const line of await getBudgetLines()) {
       const paydaysThatMonth = paydaysInMonth(
         defaultSchedule,
         line.budgetPeriod.year,
