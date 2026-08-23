@@ -457,6 +457,25 @@ month-arithmetic. This was UI-only — no server changes were needed since
 `reporting.categorySpending` already accepted an arbitrary `{year, month}` and returns an empty
 report for months with no data rather than erroring.
 
+Increment 50 fixes a real bug that was previously documented as an accepted limitation:
+`budget.applyBudgetLine` didn't mark a `BudgetLine` as applied, so re-applying the same id silently
+created a second ledger `Transaction` (double-posting the allocation). `BudgetLine` now carries a
+persisted `isApplied: boolean` (`packages/shared/src/domain/budget-line.ts`, mirroring
+`Account.isArchived`), with a new `markBudgetLineApplied` setter. `applyBudgetLine` now throws
+(unwrapped `Error`, surfacing as 500) when called on an already-applied line — checked before its
+existing account/envelope-mismatch validation. The batch `applyBudgetLines` auto-skips
+already-applied lines straight into `skippedLines` without even calling the resolver, mirroring
+`settleCardCycle`'s auto-skip of unfunded purchases. `apps/server/src/store.ts`'s `budgetLines`
+array is now mutable with a new `replaceBudgetLine`, and both router mutations persist the applied
+state via `markBudgetLineApplied`/`replaceBudgetLine` for every line actually applied. Fixing this
+broke several pre-existing tests that relied on the old (buggy) ability to re-apply the same seeded
+`BudgetLine` safely across test cases — since no `createBudgetLine` mutation exists to mint fresh
+fixtures, `apps/server/src/routers/budget.test.ts` now deliberately budgets each of the 2 seeded
+lines to exactly one successful application across the whole file's declaration order, documented
+inline. No UI wiring yet — the Budget tab's `BudgetLineApplyControls` still only tracks "applied"
+transiently per-component-lifetime; reflecting the now-real, persisted `isApplied` state (and
+disabling re-apply) is the next, separate increment.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
