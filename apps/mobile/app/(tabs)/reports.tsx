@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { trpc } from "../../lib/trpc";
+import { Colors, Spacing, Typography } from "../../theme";
 
 const MONTH_NAMES = [
   "January",
@@ -175,57 +176,55 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   scrollContent: {
-    paddingVertical: 24,
-    paddingHorizontal: 16,
+    paddingVertical: Spacing.xl,
+    paddingHorizontal: Spacing.lg,
   },
   title: {
-    fontSize: 32,
-    fontWeight: "600",
-    marginBottom: 4,
+    ...Typography.titleLarge,
+    marginBottom: Spacing.xs,
   },
   periodLabel: {
-    fontSize: 16,
-    color: "#666",
+    ...Typography.body,
+    color: Colors.textMuted,
   },
   cycleNavRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 16,
+    marginBottom: Spacing.lg,
   },
   cycleNavButton: {
-    paddingVertical: 4,
-    paddingHorizontal: 8,
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
   },
   cycleNavButtonText: {
-    fontSize: 14,
+    ...Typography.detail,
     fontWeight: "600",
   },
   section: {
-    marginBottom: 20,
+    marginBottom: Spacing.xl,
   },
   sectionHeading: {
-    fontSize: 18,
-    fontWeight: "700",
-    marginBottom: 8,
+    ...Typography.heading,
+    marginBottom: Spacing.sm,
   },
   row: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 6,
-    paddingLeft: 12,
+    paddingVertical: Spacing.sm,
+    paddingLeft: Spacing.md,
   },
   rowName: {
-    fontSize: 16,
+    ...Typography.body,
   },
   rowAmount: {
-    fontSize: 16,
+    ...Typography.body,
     fontWeight: "600",
   },
   emptyText: {
-    fontSize: 14,
-    color: "#666",
-    paddingLeft: 12,
+    ...Typography.detail,
+    color: Colors.textMuted,
+    paddingLeft: Spacing.md,
   },
 });

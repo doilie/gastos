@@ -16,6 +16,7 @@ import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { trpc } from "../../lib/trpc";
+import { Colors, Radius, Spacing, Typography } from "../../theme";
 
 /** Same one-liner as `QuickAddForm.tsx`'s `todayLedgerDate` — not worth
  * extracting into a shared util yet for a single duplicated line. */
@@ -496,68 +497,65 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   scrollContent: {
-    paddingVertical: 24,
-    paddingHorizontal: 16,
+    paddingVertical: Spacing.xl,
+    paddingHorizontal: Spacing.lg,
   },
   title: {
-    fontSize: 32,
-    fontWeight: "600",
-    marginBottom: 16,
+    ...Typography.titleLarge,
+    marginBottom: Spacing.lg,
   },
   section: {
-    marginBottom: 20,
+    marginBottom: Spacing.xl,
   },
   cardName: {
-    fontSize: 18,
-    fontWeight: "700",
-    marginBottom: 4,
+    ...Typography.heading,
+    marginBottom: Spacing.xs,
   },
   cycleNavRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 4,
+    marginBottom: Spacing.xs,
   },
   cycleNavButton: {
-    paddingVertical: 4,
-    paddingHorizontal: 8,
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
   },
   cycleNavButtonText: {
-    fontSize: 14,
+    ...Typography.detail,
     fontWeight: "600",
   },
   cycleRange: {
-    fontSize: 14,
-    color: "#666",
+    ...Typography.detail,
+    color: Colors.textMuted,
   },
   cycleTotal: {
-    fontSize: 20,
-    fontWeight: "600",
-    marginBottom: 8,
+    ...Typography.heading,
+    marginBottom: Spacing.sm,
   },
   emptyText: {
-    fontSize: 14,
-    color: "#666",
-    paddingLeft: 12,
+    ...Typography.detail,
+    color: Colors.textMuted,
+    paddingLeft: Spacing.md,
   },
   settleCycleContainer: {
-    marginBottom: 10,
+    marginBottom: Spacing.md,
   },
   settleCycleButton: {
     alignSelf: "flex-start",
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
     borderWidth: 1,
-    borderColor: "#999",
-    borderRadius: 6,
+    borderColor: Colors.textMuted,
+    borderRadius: Radius.default,
   },
   settleCycleButtonText: {
-    fontSize: 14,
+    ...Typography.detail,
     fontWeight: "700",
   },
   rowContainer: {
-    paddingVertical: 6,
-    paddingLeft: 12,
+    paddingVertical: Spacing.sm,
+    paddingLeft: Spacing.md,
   },
   row: {
     flexDirection: "row",
@@ -565,51 +563,51 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   purchaseDescription: {
-    fontSize: 16,
+    ...Typography.body,
   },
   purchaseDate: {
-    fontSize: 12,
-    color: "#666",
+    ...Typography.detail,
+    color: Colors.textMuted,
   },
   purchaseAmount: {
-    fontSize: 16,
+    ...Typography.body,
     fontWeight: "600",
   },
   notFundedText: {
-    marginTop: 4,
-    fontSize: 13,
-    color: "#666",
+    marginTop: Spacing.xs,
+    ...Typography.detail,
+    color: Colors.textMuted,
   },
   settleContainer: {
-    marginTop: 6,
+    marginTop: Spacing.sm,
   },
   settleButton: {
     alignSelf: "flex-start",
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
     borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
+    borderColor: Colors.border,
+    borderRadius: Radius.default,
   },
   settleButtonText: {
-    fontSize: 14,
+    ...Typography.detail,
     fontWeight: "600",
   },
   picker: {
-    marginTop: 4,
+    marginTop: Spacing.xs,
   },
   pickerOption: {
-    paddingVertical: 4,
-    paddingHorizontal: 8,
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
   },
   settleSuccess: {
-    marginTop: 4,
-    fontSize: 13,
-    color: "#0a0",
+    marginTop: Spacing.xs,
+    ...Typography.detail,
+    color: Colors.positive,
   },
   settleError: {
-    marginTop: 4,
-    fontSize: 13,
-    color: "#c00",
+    marginTop: Spacing.xs,
+    ...Typography.detail,
+    color: Colors.error,
   },
 });

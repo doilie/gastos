@@ -1,5 +1,7 @@
 import { StyleSheet, Text, View } from "react-native";
 
+import { Colors, Spacing, Typography } from "../theme";
+
 /**
  * Shared visual shell for tab screens that don't have real data wired up
  * yet. Each tab renders this with its own title/subtitle until the
@@ -27,12 +29,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   title: {
-    fontSize: 32,
-    fontWeight: "600",
+    ...Typography.titleLarge,
   },
   subtitle: {
-    marginTop: 8,
-    fontSize: 14,
-    color: "#666",
+    ...Typography.detail,
+    marginTop: Spacing.sm,
+    color: Colors.textMuted,
   },
 });

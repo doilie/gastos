@@ -11,6 +11,7 @@ import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { trpc } from "../../lib/trpc";
+import { Colors, Radius, Spacing, Typography } from "../../theme";
 
 /** One sub-envelope's balance, keyed by `SubEnvelope.id`, from `useQueries`. */
 type BalanceQuery = UseQueryResult<Cents>;
@@ -830,39 +831,37 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   scrollContent: {
-    paddingVertical: 24,
-    paddingHorizontal: 16,
+    paddingVertical: Spacing.xl,
+    paddingHorizontal: Spacing.lg,
   },
   title: {
-    fontSize: 32,
-    fontWeight: "600",
-    marginBottom: 16,
+    ...Typography.titleLarge,
+    marginBottom: Spacing.lg,
   },
   section: {
-    marginBottom: 20,
+    marginBottom: Spacing.xl,
   },
   groupHeading: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: Spacing.sm,
   },
   groupName: {
-    fontSize: 18,
-    fontWeight: "700",
+    ...Typography.heading,
   },
   row: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 6,
-    paddingLeft: 12,
+    paddingVertical: Spacing.sm,
+    paddingLeft: Spacing.md,
   },
   subEnvelopeName: {
-    fontSize: 16,
+    ...Typography.body,
   },
   subEnvelopeBalance: {
-    fontSize: 16,
+    ...Typography.body,
     fontWeight: "600",
   },
   rowButtons: {
@@ -870,64 +869,64 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   rowError: {
-    paddingLeft: 12,
+    paddingLeft: Spacing.md,
   },
   addButton: {
-    marginTop: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    marginTop: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
   },
   addButtonText: {
-    fontSize: 16,
+    ...Typography.body,
     fontWeight: "600",
   },
   editButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
   },
   editButtonText: {
-    fontSize: 14,
+    ...Typography.detail,
     fontWeight: "600",
   },
   form: {
-    marginTop: 8,
+    marginTop: Spacing.sm,
     width: 240,
   },
   input: {
     borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    marginBottom: 8,
-    fontSize: 16,
+    borderColor: Colors.border,
+    borderRadius: Radius.default,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    marginBottom: Spacing.sm,
+    ...Typography.body,
   },
   formButtons: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginTop: 4,
+    marginTop: Spacing.xs,
   },
   formButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
   },
   error: {
-    color: "#c00",
-    marginBottom: 8,
-    fontSize: 14,
+    ...Typography.detail,
+    color: Colors.error,
+    marginBottom: Spacing.sm,
   },
   multiSelect: {
-    marginBottom: 8,
+    marginBottom: Spacing.sm,
   },
   multiSelectOption: {
-    paddingVertical: 6,
-    paddingHorizontal: 8,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.sm,
   },
   multiSelectOptionText: {
-    fontSize: 15,
+    ...Typography.body,
   },
   multiSelectOptionSelectedText: {
-    fontSize: 15,
+    ...Typography.body,
     fontWeight: "700",
   },
 });
