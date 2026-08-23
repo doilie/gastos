@@ -16,12 +16,16 @@ import {
   transactionIdFromString,
   ledgerDateFromString,
   type Transaction,
+  type TransactionId,
 } from "@gastos/shared";
+import { eq } from "drizzle-orm";
 
 /** The async Ledger Core store surface, backed by a real Postgres `Db`. */
 export interface LedgerStore {
   getTransactions(): Promise<readonly Transaction[]>;
   addTransaction(transaction: Transaction): Promise<void>;
+  replaceTransaction(transaction: Transaction): Promise<void>;
+  deleteTransaction(id: TransactionId): Promise<void>;
 }
 
 function toTransaction(row: typeof transactions.$inferSelect): Transaction {
@@ -56,6 +60,25 @@ async function addTransactionImpl(db: Db, transaction: Transaction): Promise<voi
   });
 }
 
+async function replaceTransactionImpl(db: Db, transaction: Transaction): Promise<void> {
+  await db
+    .update(transactions)
+    .set({
+      date: transaction.date,
+      description: transaction.description,
+      categoryId: transaction.categoryId,
+      accountId: transaction.accountId,
+      subEnvelopeId: transaction.subEnvelopeId,
+      counterTransactionId: transaction.counterTransactionId,
+      amount: transaction.amount,
+    })
+    .where(eq(transactions.id, transaction.id));
+}
+
+async function deleteTransactionImpl(db: Db, id: TransactionId): Promise<void> {
+  await db.delete(transactions).where(eq(transactions.id, id));
+}
+
 /**
  * Builds a `LedgerStore` backed by `db` — a real Postgres connection for
  * production use (see `apps/server/src/db.ts`), or any other `Db` instance
@@ -65,5 +88,7 @@ export function createLedgerStore(db: Db): LedgerStore {
   return {
     getTransactions: () => getTransactionsImpl(db),
     addTransaction: (transaction) => addTransactionImpl(db, transaction),
+    replaceTransaction: (transaction) => replaceTransactionImpl(db, transaction),
+    deleteTransaction: (id) => deleteTransactionImpl(db, id),
   };
 }

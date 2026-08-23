@@ -396,3 +396,240 @@ describe("ledger.addTransaction — validation errors", () => {
     await app.close();
   });
 });
+
+// updateTransaction/deleteTransaction tests each create their own throwaway
+// transaction via addTransaction first, rather than mutating one of the 5
+// shared seed fixtures other tests in this file (and other test files run
+// against the same testcontainers Postgres) might depend on — mirroring the
+// isolation note above ledger.addTransaction's own tests.
+
+async function addThrowawayTransaction(
+  app: ReturnType<typeof buildServer>,
+  overrides: Partial<AddTransactionInput> = {},
+): Promise<AddedTransaction> {
+  return mutateLedger<AddedTransaction>(
+    app,
+    "addTransaction",
+    validAddTransactionInput({ description: "Throwaway fixture", ...overrides }),
+  );
+}
+
+describe("ledger.updateTransaction — success", () => {
+  it("updates only description, leaving every other field unchanged", async () => {
+    const app = buildServer();
+    const created = await addThrowawayTransaction(app, { description: "Original description" });
+
+    const updated = await mutateLedger<AddedTransaction>(app, "updateTransaction", {
+      id: created.id,
+      description: "Updated description",
+    });
+
+    expect(updated.description).toBe("Updated description");
+    expect(updated.date).toBe(created.date);
+    expect(updated.categoryId).toBe(created.categoryId);
+    expect(updated.accountId).toBe(created.accountId);
+    expect(updated.subEnvelopeId).toBe(created.subEnvelopeId);
+    expect(updated.amount).toBe(created.amount);
+    expect(updated.id).toBe(created.id);
+    expect(updated.counterTransactionId).toBeNull();
+    await app.close();
+  });
+
+  it("persists the description update, visible in a fresh ledger.transactions request", async () => {
+    const app = buildServer();
+    const created = await addThrowawayTransaction(app, { description: "Original description" });
+
+    await mutateLedger<AddedTransaction>(app, "updateTransaction", {
+      id: created.id,
+      description: "Persisted update",
+    });
+
+    const allTransactions = await queryLedger<AddedTransaction[]>(app, "transactions");
+    const found = allTransactions.find((transaction) => transaction.id === created.id);
+    expect(found?.description).toBe("Persisted update");
+    await app.close();
+  });
+});
+
+describe("ledger.updateTransaction — success, multiple/nullable/id fields", () => {
+  it("updates multiple fields at once", async () => {
+    const app = buildServer();
+    const created = await addThrowawayTransaction(app, {
+      description: "Original description",
+      amount: "-10.00",
+    });
+
+    const updated = await mutateLedger<AddedTransaction>(app, "updateTransaction", {
+      id: created.id,
+      description: "Multi-field update",
+      amount: "-25.50",
+      date: "2026-08-20",
+    });
+
+    expect(updated.description).toBe("Multi-field update");
+    expect(updated.amount).toBe(-2550);
+    expect(updated.date).toBe("2026-08-20");
+    expect(updated.accountId).toBe(created.accountId);
+    expect(updated.subEnvelopeId).toBe(created.subEnvelopeId);
+    expect(updated.categoryId).toBe(created.categoryId);
+    await app.close();
+  });
+
+  it("updates categoryId to null, clearing it", async () => {
+    const app = buildServer();
+    const created = await addThrowawayTransaction(app, { categoryId: "category-groceries" });
+    expect(created.categoryId).toBe("category-groceries");
+
+    const updated = await mutateLedger<AddedTransaction>(app, "updateTransaction", {
+      id: created.id,
+      categoryId: null,
+    });
+
+    expect(updated.categoryId).toBeNull();
+    await app.close();
+  });
+
+  it("updates accountId/subEnvelopeId to different valid seeded ids", async () => {
+    const app = buildServer();
+    const created = await addThrowawayTransaction(app, {
+      accountId: "account-checking",
+      subEnvelopeId: "spendable",
+    });
+
+    const updated = await mutateLedger<AddedTransaction>(app, "updateTransaction", {
+      id: created.id,
+      accountId: "account-savings",
+      subEnvelopeId: "sub-envelope-groceries-fund",
+    });
+
+    expect(updated.accountId).toBe("account-savings");
+    expect(updated.subEnvelopeId).toBe("sub-envelope-groceries-fund");
+    await app.close();
+  });
+
+  it("is a no-op on other fields when given no update fields besides id", async () => {
+    const app = buildServer();
+    const created = await addThrowawayTransaction(app);
+
+    const updated = await mutateLedger<AddedTransaction>(app, "updateTransaction", {
+      id: created.id,
+    });
+
+    expect(updated).toEqual(created);
+    await app.close();
+  });
+});
+
+describe("ledger.updateTransaction — validation errors", () => {
+  it("returns NOT_FOUND (404) for a nonexistent transaction id", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateLedgerExpectingError(app, "updateTransaction", {
+      id: "txn-does-not-exist",
+      description: "Whatever",
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("returns NOT_FOUND (404) for a well-formed but nonexistent accountId", async () => {
+    const app = buildServer();
+    const created = await addThrowawayTransaction(app);
+
+    const { statusCode, error } = await mutateLedgerExpectingError(app, "updateTransaction", {
+      id: created.id,
+      accountId: "account-does-not-exist",
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("returns NOT_FOUND (404) for a well-formed but nonexistent subEnvelopeId", async () => {
+    const app = buildServer();
+    const created = await addThrowawayTransaction(app);
+
+    const { statusCode, error } = await mutateLedgerExpectingError(app, "updateTransaction", {
+      id: created.id,
+      subEnvelopeId: "sub-envelope-does-not-exist",
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("returns NOT_FOUND (404) for a well-formed but nonexistent categoryId", async () => {
+    const app = buildServer();
+    const created = await addThrowawayTransaction(app);
+
+    const { statusCode, error } = await mutateLedgerExpectingError(app, "updateTransaction", {
+      id: created.id,
+      categoryId: "category-does-not-exist",
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("returns a non-2xx (INTERNAL_SERVER_ERROR/500) for an empty/whitespace-only description, and does not persist it", async () => {
+    const app = buildServer();
+    const created = await addThrowawayTransaction(app, { description: "Untouched description" });
+
+    const { statusCode, error } = await mutateLedgerExpectingError(app, "updateTransaction", {
+      id: created.id,
+      description: "   ",
+    });
+    // updateTransaction throws a plain Error (not a TRPCError), which tRPC
+    // surfaces as INTERNAL_SERVER_ERROR/500 — same convention as
+    // addTransaction's own empty-description test and
+    // reference.test.ts's updateAccount/updateCategory error tests.
+    expect(statusCode).toBe(500);
+    expect(error.data.code).toBe("INTERNAL_SERVER_ERROR");
+
+    const allTransactions = await queryLedger<AddedTransaction[]>(app, "transactions");
+    const found = allTransactions.find((transaction) => transaction.id === created.id);
+    expect(found?.description).toBe("Untouched description");
+    await app.close();
+  });
+});
+
+describe("ledger.deleteTransaction — success", () => {
+  it("deletes the transaction, no longer appearing in a fresh ledger.transactions request", async () => {
+    const app = buildServer();
+    const created = await addThrowawayTransaction(app);
+
+    const deleteResult = await mutateLedger<{ id: string }>(app, "deleteTransaction", {
+      id: created.id,
+    });
+    expect(deleteResult.id).toBe(created.id);
+
+    const allTransactions = await queryLedger<AddedTransaction[]>(app, "transactions");
+    const found = allTransactions.find((transaction) => transaction.id === created.id);
+    expect(found).toBeUndefined();
+    await app.close();
+  });
+
+  it("moves spendableBalance by exactly the negated amount of the deleted transaction", async () => {
+    const app = buildServer();
+    const created = await addThrowawayTransaction(app, { amount: "-42.00" });
+
+    const before = await queryLedger<number>(app, "spendableBalance");
+    await mutateLedger<{ id: string }>(app, "deleteTransaction", { id: created.id });
+    const after = await queryLedger<number>(app, "spendableBalance");
+
+    expect(after - before).toBe(4200);
+    await app.close();
+  });
+});
+
+describe("ledger.deleteTransaction — validation errors", () => {
+  it("returns NOT_FOUND (404) for a nonexistent transaction id", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateLedgerExpectingError(app, "deleteTransaction", {
+      id: "txn-does-not-exist",
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+});

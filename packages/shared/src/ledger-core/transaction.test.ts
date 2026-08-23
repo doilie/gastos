@@ -13,6 +13,7 @@ import {
   isDebit,
   ledgerDateFromString,
   transactionIdFromString,
+  updateTransaction,
 } from "./transaction";
 
 describe("transactionIdFromString", () => {
@@ -200,6 +201,230 @@ describe("createTransaction description validation", () => {
         amount: centsFromInt(100),
       }),
     ).toThrow();
+  });
+});
+
+const updateTransactionFixtureId = transactionIdFromString("txn-1");
+const updateTransactionFixtureDate = ledgerDateFromString("2024-06-01");
+const updateTransactionFixtureOtherDate = ledgerDateFromString("2024-07-15");
+const updateTransactionFixtureAccountId = accountIdFromString("acc-1");
+const updateTransactionFixtureOtherAccountId = accountIdFromString("acc-2");
+const updateTransactionFixtureSubEnvelopeId = subEnvelopeIdFromString("sub-1");
+const updateTransactionFixtureOtherSubEnvelopeId = subEnvelopeIdFromString("sub-2");
+const updateTransactionFixtureCategoryId = categoryIdFromString("cat-1");
+const updateTransactionFixtureOtherCategoryId = categoryIdFromString("cat-2");
+
+describe("updateTransaction single-field updates", () => {
+  const id = updateTransactionFixtureId;
+  const date = updateTransactionFixtureDate;
+  const otherDate = updateTransactionFixtureOtherDate;
+  const accountId = updateTransactionFixtureAccountId;
+  const subEnvelopeId = updateTransactionFixtureSubEnvelopeId;
+  const categoryId = updateTransactionFixtureCategoryId;
+  const transaction = createTransaction({
+    id,
+    date,
+    description: "Groceries",
+    categoryId,
+    accountId,
+    subEnvelopeId,
+    amount: centsFromInt(-500),
+  });
+
+  it("updates only date, leaving everything else unchanged", () => {
+    const updated = updateTransaction(transaction, { date: otherDate });
+    expect(updated.date).toBe(otherDate);
+    expect(updated.description).toBe(transaction.description);
+    expect(updated.categoryId).toBe(transaction.categoryId);
+    expect(updated.accountId).toBe(transaction.accountId);
+    expect(updated.subEnvelopeId).toBe(transaction.subEnvelopeId);
+    expect(updated.amount).toBe(transaction.amount);
+    expect(updated.id).toBe(transaction.id);
+  });
+
+  it("updates only description, leaving everything else unchanged", () => {
+    const updated = updateTransaction(transaction, { description: "Updated groceries" });
+    expect(updated.description).toBe("Updated groceries");
+    expect(updated.date).toBe(transaction.date);
+    expect(updated.categoryId).toBe(transaction.categoryId);
+    expect(updated.accountId).toBe(transaction.accountId);
+    expect(updated.subEnvelopeId).toBe(transaction.subEnvelopeId);
+    expect(updated.amount).toBe(transaction.amount);
+  });
+
+});
+
+describe("updateTransaction single-field updates, continued", () => {
+  const id = updateTransactionFixtureId;
+  const date = updateTransactionFixtureDate;
+  const accountId = updateTransactionFixtureAccountId;
+  const otherAccountId = updateTransactionFixtureOtherAccountId;
+  const subEnvelopeId = updateTransactionFixtureSubEnvelopeId;
+  const otherSubEnvelopeId = updateTransactionFixtureOtherSubEnvelopeId;
+  const categoryId = updateTransactionFixtureCategoryId;
+  const transaction = createTransaction({
+    id,
+    date,
+    description: "Groceries",
+    categoryId,
+    accountId,
+    subEnvelopeId,
+    amount: centsFromInt(-500),
+  });
+
+  it("updates only accountId, leaving everything else unchanged", () => {
+    const updated = updateTransaction(transaction, { accountId: otherAccountId });
+    expect(updated.accountId).toBe(otherAccountId);
+    expect(updated.date).toBe(transaction.date);
+    expect(updated.description).toBe(transaction.description);
+    expect(updated.categoryId).toBe(transaction.categoryId);
+    expect(updated.subEnvelopeId).toBe(transaction.subEnvelopeId);
+    expect(updated.amount).toBe(transaction.amount);
+  });
+
+  it("updates only subEnvelopeId, leaving everything else unchanged", () => {
+    const updated = updateTransaction(transaction, { subEnvelopeId: otherSubEnvelopeId });
+    expect(updated.subEnvelopeId).toBe(otherSubEnvelopeId);
+    expect(updated.date).toBe(transaction.date);
+    expect(updated.description).toBe(transaction.description);
+    expect(updated.categoryId).toBe(transaction.categoryId);
+    expect(updated.accountId).toBe(transaction.accountId);
+    expect(updated.amount).toBe(transaction.amount);
+  });
+
+  it("updates only amount, leaving everything else unchanged", () => {
+    const updated = updateTransaction(transaction, { amount: centsFromInt(12345) });
+    expect(updated.amount).toBe(12345);
+    expect(updated.date).toBe(transaction.date);
+    expect(updated.description).toBe(transaction.description);
+    expect(updated.categoryId).toBe(transaction.categoryId);
+    expect(updated.accountId).toBe(transaction.accountId);
+    expect(updated.subEnvelopeId).toBe(transaction.subEnvelopeId);
+  });
+});
+
+describe("updateTransaction multi-field, no-op, and description validation", () => {
+  const id = updateTransactionFixtureId;
+  const date = updateTransactionFixtureDate;
+  const otherDate = updateTransactionFixtureOtherDate;
+  const accountId = updateTransactionFixtureAccountId;
+  const otherAccountId = updateTransactionFixtureOtherAccountId;
+  const subEnvelopeId = updateTransactionFixtureSubEnvelopeId;
+  const categoryId = updateTransactionFixtureCategoryId;
+  const transaction = createTransaction({
+    id,
+    date,
+    description: "Groceries",
+    categoryId,
+    accountId,
+    subEnvelopeId,
+    amount: centsFromInt(-500),
+  });
+
+  it("updates multiple fields at once", () => {
+    const updated = updateTransaction(transaction, {
+      date: otherDate,
+      description: "Updated groceries",
+      accountId: otherAccountId,
+      amount: centsFromInt(12345),
+    });
+    expect(updated).toEqual({
+      id,
+      date: otherDate,
+      description: "Updated groceries",
+      categoryId: transaction.categoryId,
+      accountId: otherAccountId,
+      subEnvelopeId: transaction.subEnvelopeId,
+      counterTransactionId: null,
+      amount: 12345,
+    });
+  });
+
+  it("is a no-op when updates is an empty object", () => {
+    const updated = updateTransaction(transaction, {});
+    expect(updated).toEqual(transaction);
+  });
+
+  it.each([
+    ["empty string", ""],
+    ["whitespace-only", "   "],
+  ])("throws on %s description (%p)", (_label, description) => {
+    expect(() => updateTransaction(transaction, { description })).toThrow();
+  });
+});
+
+describe("updateTransaction categoryId nullability", () => {
+  const id = updateTransactionFixtureId;
+  const date = updateTransactionFixtureDate;
+  const accountId = updateTransactionFixtureAccountId;
+  const subEnvelopeId = updateTransactionFixtureSubEnvelopeId;
+  const categoryId = updateTransactionFixtureCategoryId;
+  const otherCategoryId = updateTransactionFixtureOtherCategoryId;
+  const transaction = createTransaction({
+    id,
+    date,
+    description: "Groceries",
+    categoryId,
+    accountId,
+    subEnvelopeId,
+    amount: centsFromInt(-500),
+  });
+
+  it("clears categoryId when updated to null from a real category", () => {
+    const updated = updateTransaction(transaction, { categoryId: null });
+    expect(updated.categoryId).toBeNull();
+    expect(updated.date).toBe(transaction.date);
+    expect(updated.description).toBe(transaction.description);
+    expect(updated.accountId).toBe(transaction.accountId);
+    expect(updated.subEnvelopeId).toBe(transaction.subEnvelopeId);
+    expect(updated.amount).toBe(transaction.amount);
+  });
+
+  it("sets categoryId when updated from null to a real category", () => {
+    const noCategoryTransaction = createTransaction({
+      id,
+      date,
+      description: "Transfer",
+      categoryId: null,
+      accountId,
+      subEnvelopeId,
+      amount: centsFromInt(1000),
+    });
+    const updated = updateTransaction(noCategoryTransaction, { categoryId: otherCategoryId });
+    expect(updated.categoryId).toBe(otherCategoryId);
+  });
+});
+
+describe("updateTransaction id/counterTransactionId immutability", () => {
+  const id = updateTransactionFixtureId;
+  const date = updateTransactionFixtureDate;
+  const otherDate = updateTransactionFixtureOtherDate;
+  const accountId = updateTransactionFixtureAccountId;
+  const otherAccountId = updateTransactionFixtureOtherAccountId;
+  const subEnvelopeId = updateTransactionFixtureSubEnvelopeId;
+  const otherSubEnvelopeId = updateTransactionFixtureOtherSubEnvelopeId;
+
+  it("never changes id or counterTransactionId, even when other fields are updated", () => {
+    const counterTransactionId = transactionIdFromString("txn-2");
+    const pairedTransaction = createTransaction({
+      id,
+      date,
+      description: "Transfer",
+      categoryId: null,
+      accountId,
+      subEnvelopeId,
+      counterTransactionId,
+      amount: centsFromInt(1000),
+    });
+    const updated = updateTransaction(pairedTransaction, {
+      date: otherDate,
+      description: "Updated transfer",
+      accountId: otherAccountId,
+      subEnvelopeId: otherSubEnvelopeId,
+      amount: centsFromInt(-1000),
+    });
+    expect(updated.id).toBe(pairedTransaction.id);
+    expect(updated.counterTransactionId).toBe(counterTransactionId);
   });
 });
 

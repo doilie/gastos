@@ -27,7 +27,8 @@ export const {
   replaceSubEnvelope,
 } = referenceStore;
 
-export const { getTransactions, addTransaction } = ledgerStore;
+export const { getTransactions, addTransaction, replaceTransaction, deleteTransaction } =
+  ledgerStore;
 
 export const {
   getCreditCards,

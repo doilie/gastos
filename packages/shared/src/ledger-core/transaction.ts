@@ -132,6 +132,42 @@ export function createTransaction(input: {
   };
 }
 
+/**
+ * Applies a partial update to `transaction`, validating `description` the
+ * same way `createTransaction` does when provided. `categoryId` is typed as
+ * `CategoryId | null` (not `| null | undefined`) so `undefined` means "don't
+ * touch this field" while an explicit `null` means "set it to no-category" —
+ * mirroring `Transaction.categoryId`'s own nullability. `id` and
+ * `counterTransactionId` are never touched — both are excluded from the
+ * `updates` parameter's type entirely (not just skipped at runtime), so
+ * misuse is a compile error. `counterTransactionId` is excluded because
+ * transfer-pair editing is out of scope for this increment, not because of
+ * any deeper invariant.
+ */
+export function updateTransaction(
+  transaction: Transaction,
+  updates: {
+    date?: LedgerDate;
+    description?: string;
+    categoryId?: CategoryId | null;
+    accountId?: AccountId;
+    subEnvelopeId?: SubEnvelopeId;
+    amount?: Cents;
+  },
+): Transaction {
+  return {
+    ...transaction,
+    ...(updates.date === undefined ? {} : { date: updates.date }),
+    ...(updates.description === undefined
+      ? {}
+      : { description: assertNonEmptyDescription(updates.description, "updateTransaction") }),
+    ...(updates.categoryId === undefined ? {} : { categoryId: updates.categoryId }),
+    ...(updates.accountId === undefined ? {} : { accountId: updates.accountId }),
+    ...(updates.subEnvelopeId === undefined ? {} : { subEnvelopeId: updates.subEnvelopeId }),
+    ...(updates.amount === undefined ? {} : { amount: updates.amount }),
+  };
+}
+
 /** True iff `transaction.amount` is strictly positive (an inflow/credit). */
 export function isCredit(transaction: Transaction): boolean {
   return !isZeroCents(transaction.amount) && compareCents(transaction.amount, ZERO_CENTS) > 0;
