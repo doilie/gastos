@@ -1,8 +1,10 @@
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from "@testcontainers/postgresql";
 import {
   centsFromInt,
+  CREDIT_CARD_BUDGET_ENVELOPE_ID,
   deriveSubEnvelopeBalance,
   isAccountFundingSource,
+  isCreditCardBudgetEnvelope,
   isEnvelopeFundingSource,
   isSpendableEnvelope,
   isUnfundedSource,
@@ -87,13 +89,17 @@ describe("store: envelope groups", () => {
 });
 
 describe("store: sub-envelopes", () => {
-  it("returns exactly 2 sub-envelopes, exactly one of which is the reserved Spendable envelope", async () => {
+  it("returns exactly 3 sub-envelopes, exactly one of which is the reserved Spendable envelope and exactly one of which is the reserved Credit Card Budget envelope", async () => {
     const subEnvelopes = await getSubEnvelopes();
-    expect(subEnvelopes).toHaveLength(2);
+    expect(subEnvelopes).toHaveLength(3);
 
     const spendableEnvelopes = subEnvelopes.filter(isSpendableEnvelope);
     expect(spendableEnvelopes).toHaveLength(1);
     expect(spendableEnvelopes[0]?.id).toBe(SPENDABLE_ENVELOPE_ID);
+
+    const creditCardBudgetEnvelopes = subEnvelopes.filter(isCreditCardBudgetEnvelope);
+    expect(creditCardBudgetEnvelopes).toHaveLength(1);
+    expect(creditCardBudgetEnvelopes[0]?.id).toBe(CREDIT_CARD_BUDGET_ENVELOPE_ID);
   });
 });
 

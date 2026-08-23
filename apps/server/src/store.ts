@@ -34,6 +34,7 @@ export const {
   getCreditCards,
   getPaydaySchedules,
   getCardPurchases,
+  addCardPurchase,
   getBudgetLines,
   replaceBudgetLine,
 } = domainStore;

@@ -4,10 +4,11 @@
 // and `PaydaySchedule` are schema-wise Reference-layer tables, but
 // apps/server/src/store.ts has always grouped them alongside
 // CardPurchase/BudgetLine as "not yet DB-backed", so this file keeps doing
-// the same rather than folding them into reference-store.ts. Only
-// `getX`/`replaceBudgetLine` exist — no `add`/`replace` for
-// CreditCard/PaydaySchedule/CardPurchase, since no mutation for those exists
-// in this app yet.
+// the same rather than folding them into reference-store.ts. `addCardPurchase`
+// is the first `add`/`replace`-style mutation for any of these four types —
+// wired up for the new `cards.createCardPurchase` tRPC mutation; there is
+// still no `add`/`replace` for CreditCard/PaydaySchedule, since no mutation
+// for those exists in this app yet.
 
 import { budgetLines, cardPurchases, creditCards, paydaySchedules, type Db } from "@gastos/db";
 import {
@@ -37,6 +38,7 @@ export interface DomainStore {
   getCreditCards(): Promise<readonly CreditCard[]>;
   getPaydaySchedules(): Promise<readonly PaydaySchedule[]>;
   getCardPurchases(): Promise<readonly CardPurchase[]>;
+  addCardPurchase(purchase: CardPurchase): Promise<void>;
   getBudgetLines(): Promise<readonly BudgetLine[]>;
   replaceBudgetLine(line: BudgetLine): Promise<void>;
 }
@@ -110,6 +112,51 @@ async function getCardPurchasesImpl(db: Db): Promise<readonly CardPurchase[]> {
   return rows.map(toCardPurchase);
 }
 
+/**
+ * The inverse of `toFundingSource`: flattens a domain `FundingSource` into
+ * the three columns `cardPurchases` stores it as — only one of
+ * `fundingSourceAccountId`/`fundingSourceEnvelopeId` is ever populated per
+ * row, matching the variant `fundingSourceKind` selects.
+ */
+function fundingSourceColumns(source: FundingSource): {
+  fundingSourceKind: string;
+  fundingSourceAccountId: string | null;
+  fundingSourceEnvelopeId: string | null;
+} {
+  switch (source.kind) {
+    case "account":
+      return {
+        fundingSourceKind: "account",
+        fundingSourceAccountId: source.accountId,
+        fundingSourceEnvelopeId: null,
+      };
+    case "envelope":
+      return {
+        fundingSourceKind: "envelope",
+        fundingSourceAccountId: null,
+        fundingSourceEnvelopeId: source.subEnvelopeId,
+      };
+    case "none":
+      return {
+        fundingSourceKind: "none",
+        fundingSourceAccountId: null,
+        fundingSourceEnvelopeId: null,
+      };
+  }
+}
+
+async function addCardPurchaseImpl(db: Db, purchase: CardPurchase): Promise<void> {
+  await db.insert(cardPurchases).values({
+    id: purchase.id,
+    creditCardId: purchase.creditCardId,
+    date: purchase.date,
+    description: purchase.description,
+    categoryId: purchase.categoryId,
+    amount: purchase.amount,
+    ...fundingSourceColumns(purchase.fundingSource),
+  });
+}
+
 function toBudgetLine(row: typeof budgetLines.$inferSelect): BudgetLine {
   return {
     id: budgetLineIdFromString(row.id),
@@ -152,6 +199,7 @@ export function createDomainStore(db: Db): DomainStore {
     getCreditCards: () => getCreditCardsImpl(db),
     getPaydaySchedules: () => getPaydaySchedulesImpl(db),
     getCardPurchases: () => getCardPurchasesImpl(db),
+    addCardPurchase: (purchase) => addCardPurchaseImpl(db, purchase),
     getBudgetLines: () => getBudgetLinesImpl(db),
     replaceBudgetLine: (line) => replaceBudgetLineImpl(db, line),
   };

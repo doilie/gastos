@@ -137,6 +137,188 @@ describe("cards router — read-only queries", () => {
   });
 });
 
+interface CreatedCardPurchase {
+  id: string;
+  creditCardId: string;
+  date: string;
+  description: string;
+  categoryId: string | null;
+  amount: number;
+  fundingSource:
+    | { kind: "account"; accountId: string }
+    | { kind: "envelope"; subEnvelopeId: string }
+    | { kind: "none" };
+}
+
+// NOTE: every date used by cards.createCardPurchase's success-path tests
+// below (2020-01-1x) is deliberately chosen OUTSIDE VISA_CYCLE
+// (2026-07-18–2026-08-17, defined further below) — a successful create
+// genuinely persists a new CardPurchase into the same shared store the
+// settleCardCycle tests later in this file rely on, so a date falling
+// inside that window would silently inflate the in-cycle purchase counts
+// those tests assert on.
+
+describe("cards.createCardPurchase — envelope-funded success (reserved Credit Card Budget envelope)", () => {
+  it("creates a purchase funded from the reserved Credit Card Budget envelope, with categoryId null and fundingSource round-tripping", async () => {
+    const app = buildServer();
+    const data = await mutateCards<CreatedCardPurchase>(app, "createCardPurchase", {
+      creditCardId: "credit-card-visa",
+      date: "2020-01-10",
+      description: "New gadget",
+      amount: "150.00",
+      fundingSource: { kind: "envelope", subEnvelopeId: "credit-card-budget" },
+    });
+
+    expect(typeof data.id).toBe("string");
+    expect(data.id.length).toBeGreaterThan(0);
+    expect(data.creditCardId).toBe("credit-card-visa");
+    expect(data.date).toBe("2020-01-10");
+    expect(data.description).toBe("New gadget");
+    expect(data.categoryId).toBeNull();
+    expect(data.amount).toBe(15000);
+    expect(data.fundingSource).toEqual({ kind: "envelope", subEnvelopeId: "credit-card-budget" });
+    await app.close();
+  });
+
+  it("persists the created purchase, visible in a fresh cards.cardPurchases request", async () => {
+    const app = buildServer();
+    const created = await mutateCards<CreatedCardPurchase>(app, "createCardPurchase", {
+      creditCardId: "credit-card-visa",
+      date: "2020-01-11",
+      description: "Persisted gadget",
+      amount: "75.50",
+      fundingSource: { kind: "envelope", subEnvelopeId: "credit-card-budget" },
+    });
+
+    const allPurchases = await queryCards<CreatedCardPurchase[]>(app, "cardPurchases");
+    const found = allPurchases.find((purchase) => purchase.id === created.id);
+    expect(found).toEqual(created);
+    await app.close();
+  });
+});
+
+describe("cards.createCardPurchase — envelope-funded success (a different, non-reserved seeded envelope)", () => {
+  it("creates a purchase funded from sub-envelope-groceries-fund, confirming this isn't special-cased to only the reserved Credit Card Budget envelope", async () => {
+    const app = buildServer();
+    const data = await mutateCards<CreatedCardPurchase>(app, "createCardPurchase", {
+      creditCardId: "credit-card-visa",
+      date: "2020-01-12",
+      description: "Groceries top-up",
+      amount: "42.00",
+      fundingSource: { kind: "envelope", subEnvelopeId: "sub-envelope-groceries-fund" },
+    });
+
+    expect(data.categoryId).toBeNull();
+    expect(data.amount).toBe(4200);
+    expect(data.fundingSource).toEqual({ kind: "envelope", subEnvelopeId: "sub-envelope-groceries-fund" });
+    await app.close();
+  });
+});
+
+describe("cards.createCardPurchase — unfunded success", () => {
+  it("creates a purchase with fundingSource {kind: 'none'}, round-tripping correctly", async () => {
+    const app = buildServer();
+    const data = await mutateCards<CreatedCardPurchase>(app, "createCardPurchase", {
+      creditCardId: "credit-card-visa",
+      date: "2020-01-13",
+      description: "Undecided purchase",
+      amount: "20.00",
+      fundingSource: { kind: "none" },
+    });
+
+    expect(data.categoryId).toBeNull();
+    expect(data.amount).toBe(2000);
+    expect(data.fundingSource).toEqual({ kind: "none" });
+    await app.close();
+  });
+
+  it("does not post a ledger Transaction as a side effect of creating a purchase", async () => {
+    const app = buildServer();
+    const before = await queryLedger<SettledTransaction[]>(app, "transactions");
+    await mutateCards<CreatedCardPurchase>(app, "createCardPurchase", {
+      creditCardId: "credit-card-visa",
+      date: "2020-01-14",
+      description: "No ledger side effect",
+      amount: "10.00",
+      fundingSource: { kind: "none" },
+    });
+    const after = await queryLedger<SettledTransaction[]>(app, "transactions");
+    expect(after).toHaveLength(before.length);
+    await app.close();
+  });
+});
+
+describe("cards.createCardPurchase — NOT_FOUND validation errors", () => {
+  it("returns NOT_FOUND (404) for a well-formed but nonexistent creditCardId", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateCardsExpectingError(app, "createCardPurchase", {
+      creditCardId: "credit-card-does-not-exist",
+      date: "2026-08-10",
+      description: "Nope",
+      amount: "10.00",
+      fundingSource: { kind: "none" },
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("returns NOT_FOUND (404) for a well-formed but nonexistent subEnvelopeId when fundingSource.kind is 'envelope'", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateCardsExpectingError(app, "createCardPurchase", {
+      creditCardId: "credit-card-visa",
+      date: "2026-08-10",
+      description: "Nope",
+      amount: "10.00",
+      fundingSource: { kind: "envelope", subEnvelopeId: "sub-envelope-does-not-exist" },
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+});
+
+describe("cards.createCardPurchase — domain validation errors (unwrapped Error, surfaces as 500)", () => {
+  it("rejects an empty/whitespace-only description", async () => {
+    const app = buildServer();
+    const { statusCode } = await mutateCardsExpectingError(app, "createCardPurchase", {
+      creditCardId: "credit-card-visa",
+      date: "2026-08-10",
+      description: "   ",
+      amount: "10.00",
+      fundingSource: { kind: "none" },
+    });
+    expect(statusCode).toBeGreaterThanOrEqual(400);
+    await app.close();
+  });
+
+  it("rejects a zero amount", async () => {
+    const app = buildServer();
+    const { statusCode } = await mutateCardsExpectingError(app, "createCardPurchase", {
+      creditCardId: "credit-card-visa",
+      date: "2026-08-10",
+      description: "Zero amount",
+      amount: "0.00",
+      fundingSource: { kind: "none" },
+    });
+    expect(statusCode).toBeGreaterThanOrEqual(400);
+    await app.close();
+  });
+
+  it("rejects a negative amount", async () => {
+    const app = buildServer();
+    const { statusCode } = await mutateCardsExpectingError(app, "createCardPurchase", {
+      creditCardId: "credit-card-visa",
+      date: "2026-08-10",
+      description: "Negative amount",
+      amount: "-5.00",
+      fundingSource: { kind: "none" },
+    });
+    expect(statusCode).toBeGreaterThanOrEqual(400);
+    await app.close();
+  });
+});
+
 // NOTE: cards.settleCardPurchase genuinely mutates the shared in-memory
 // store (a singleton array, same as ledger.addTransaction/
 // budget.applyBudgetLine — see store.ts's `transactions`), and it does NOT

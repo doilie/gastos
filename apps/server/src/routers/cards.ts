@@ -6,20 +6,34 @@ import {
   type CardPurchase,
   type CardPurchaseId,
   cardPurchaseIdFromString,
+  createCardPurchase as createCardPurchaseInDomain,
+  type CreditCardId,
+  creditCardIdFromString,
+  type FundingSource,
+  fundingSourceFromEnvelope,
   ledgerDateFromString,
+  parseCents,
   settleCardCycle as settleCardCycleInLedger,
   settleCardPurchase as settleCardPurchaseInLedger,
   type SubEnvelope,
   type SubEnvelopeId,
   subEnvelopeIdFromString,
   transactionIdFromString,
+  UNFUNDED_SOURCE,
 } from "@gastos/shared";
 import { TRPCError } from "@trpc/server";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { publicProcedure, router } from "../trpc";
-import { addTransaction, getAccounts, getCardPurchases, getCreditCards, getSubEnvelopes } from "../store";
+import {
+  addCardPurchase,
+  addTransaction,
+  getAccounts,
+  getCardPurchases,
+  getCreditCards,
+  getSubEnvelopes,
+} from "../store";
 
 /**
  * Throws a `NOT_FOUND` TRPCError unless some item in `items` has the given
@@ -154,8 +168,41 @@ function buildSettleCycleResolver(
 }
 
 /**
- * Read-only Credit Card queries (CreditCard/CardPurchase) plus two
- * mutations. `settleCardPurchase` wraps the `@gastos/shared` domain function
+ * Builds the `FundingSource` a new `CardPurchase` is created with, from
+ * `createCardPurchase`'s own two-variant input shape (`"envelope"`/`"none"`
+ * only — see the router doc comment below for why `"account"` isn't
+ * exposed here). Validates `subEnvelopeId` exists (`NOT_FOUND` otherwise)
+ * for the `"envelope"` variant.
+ */
+function resolveCreateFundingSource(
+  input: { kind: "envelope"; subEnvelopeId: string } | { kind: "none" },
+  subEnvelopes: readonly SubEnvelope[],
+): FundingSource {
+  if (input.kind === "none") {
+    return UNFUNDED_SOURCE;
+  }
+
+  const subEnvelopeId: SubEnvelopeId = subEnvelopeIdFromString(input.subEnvelopeId);
+  assertIdExists(subEnvelopes, subEnvelopeId, `Sub-envelope "${subEnvelopeId}" not found`);
+  return fundingSourceFromEnvelope(subEnvelopeId);
+}
+
+/**
+ * Read-only Credit Card queries (CreditCard/CardPurchase) plus three
+ * mutations. `createCardPurchase` records a new `CardPurchase` — how much is
+ * owed, on which card, funded from either an envelope or left unfunded
+ * (`"none"`). Two deliberate non-goals: the `"account"` `FundingSource`
+ * variant is not exposed at this entry point, even though the domain type
+ * technically supports it — this creation flow's product scope is "fund from
+ * an envelope, or decide later," matching `req/what-i-want.txt`; and no
+ * ledger `Transaction` is ever posted here (matches `card-purchase.ts`'s own
+ * documented scope note) — creating a purchase is purely a record of what's
+ * owed and how it's expected to be paid, settlement (`settleCardPurchase`/
+ * `settleCardCycle` below) is a separate, later action the user takes.
+ * `categoryId` is always `null` here — category picking on create is
+ * out of scope for this increment.
+ *
+ * `settleCardPurchase` wraps the `@gastos/shared` domain function
  * of the same name, wiring a single funded `CardPurchase` into a real ledger
  * `Transaction` — the caller always supplies both `accountId` and
  * `subEnvelopeId` explicitly (mirrored from the domain function's own
@@ -189,6 +236,39 @@ function buildSettleCycleResolver(
 export const cardsRouter = router({
   creditCards: publicProcedure.query(async () => getCreditCards()),
   cardPurchases: publicProcedure.query(async () => getCardPurchases()),
+  createCardPurchase: publicProcedure
+    .input(
+      z.object({
+        creditCardId: z.string(),
+        date: z.string(),
+        description: z.string(),
+        amount: z.string(),
+        fundingSource: z.discriminatedUnion("kind", [
+          z.object({ kind: z.literal("envelope"), subEnvelopeId: z.string() }),
+          z.object({ kind: z.literal("none") }),
+        ]),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const [creditCards, subEnvelopes] = await Promise.all([getCreditCards(), getSubEnvelopes()]);
+
+      const creditCardId: CreditCardId = creditCardIdFromString(input.creditCardId);
+      assertIdExists(creditCards, creditCardId, `Credit card "${creditCardId}" not found`);
+
+      const fundingSource = resolveCreateFundingSource(input.fundingSource, subEnvelopes);
+
+      const purchase: CardPurchase = createCardPurchaseInDomain({
+        id: cardPurchaseIdFromString(randomUUID()),
+        creditCardId,
+        date: ledgerDateFromString(input.date),
+        description: input.description,
+        categoryId: null,
+        amount: parseCents(input.amount),
+        fundingSource,
+      });
+      await addCardPurchase(purchase);
+      return purchase;
+    }),
   settleCardPurchase: publicProcedure
     .input(
       z.object({
