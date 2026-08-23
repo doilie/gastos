@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@expo/metro-runtime": "^57.0.10",
+    "@expo/vector-icons": "^15.1.1",
     "@gastos/shared": "workspace:*",
     "@tanstack/react-query": "^5.101.4",
     "@trpc/client": "^11.18.0",
