@@ -387,6 +387,19 @@ settling a whole cycle (`cards.settleCardCycle`) are the next, separate incremen
 thread — both need new `cards` router mutations that don't exist yet (today's `cards` router is
 entirely read-only).
 
+Increment 45 adds the server side of "settle a single purchase": `cards.settleCardPurchase`
+wraps the existing `settleCardPurchase` domain function (`packages/shared/src/domain/
+card-settlement.ts`), mirroring `budget.applyBudgetLine`'s established shape exactly — the caller
+supplies `accountId`/`subEnvelopeId` explicitly (input `{purchaseId, accountId, subEnvelopeId}`),
+the domain function validates them against the purchase's declared `FundingSource`, and any
+validation error (unfunded purchase, mismatched account/envelope) propagates unwrapped as a
+500/`INTERNAL_SERVER_ERROR`, not a `TRPCError`. For an envelope-funded purchase, the router
+resolves the funding `SubEnvelope` from the store itself (not caller-supplied). Like
+`applyBudgetLine`, this does not mark the source `CardPurchase` as "settled" — re-settling the
+same `purchaseId` creates a second `Transaction` (same accepted limitation, not a bug). No UI
+wiring yet — a Settle control per purchase row is the next, separate increment, followed by the
+multi-purchase "Settle cycle" batch mutation/UI after that.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
