@@ -416,6 +416,22 @@ previously make) to resolve envelope-funded candidates and account display names
 "not marked settled" limitation as `applyBudgetLine`. The multi-purchase "Settle cycle" batch
 mutation/UI remains the last piece of this thread.
 
+Increment 47 adds the server side of "Settle cycle": `cards.settleCardCycle` wraps the existing
+`settleCardCycle` domain function (`packages/shared/src/domain/card-cycle-settlement.ts`),
+mirroring `budget.applyBudgetLines`'s established batch shape exactly — the caller supplies
+`creditCardId` plus the exact `cycleStart`/`cycleEnd` window it computed client-side (the server
+never recomputes "today"'s cycle itself, since the user may be viewing a past cycle via the
+existing Prev/Next drilldown) and a `settlements` list of `{purchaseId, accountId, subEnvelopeId}`
+triples for whichever in-cycle purchases it wants settled right now. An in-cycle purchase that's
+unfunded, or whose id is simply absent from `settlements`, lands in the response's
+`skippedPurchases` — not an error, mirroring `applyBudgetLines`'s "unlisted item = skipped"
+semantics; a genuine domain-level mismatch (e.g. an account not linked to a purchase's funding
+envelope) still fails the whole request as an unwrapped 500, same as `settleCardPurchase`. The
+router filters the store's `CardPurchase`s to the given `creditCardId`'s own purchases before
+calling the domain function, since `settleCardCycle` itself only filters by date window, not by
+card. Same accepted "nothing marked settled" limitation as `settleCardPurchase`. No UI wiring
+yet — a "Settle cycle" action is the last remaining piece of the Cards tab enhancement thread.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
