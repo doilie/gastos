@@ -523,6 +523,42 @@ wasn't installed in this environment) is un-skipped and passing for real now tha
 available. A local dev Postgres is provisioned via the existing root `docker-compose.yml`
 (`docker compose up -d`) plus a root `.env` copied from `.env.example`.
 
+Increment 53 finishes the "real database" thread: every remaining table (`Transaction`/
+`CreditCard`/`PaydaySchedule`/`CardPurchase`/`BudgetLine`) is now Postgres-backed too, following
+Increment 52's `reference-store.ts` pattern exactly. `apps/server/src/ledger-store.ts`
+(`createLedgerStore(db)`, `Transaction`) and `apps/server/src/domain-store.ts`
+(`createDomainStore(db)`, `CreditCard`/`PaydaySchedule`/`CardPurchase`/`BudgetLine`) are the two new
+store files — `CreditCard`/`PaydaySchedule` are schema-wise Reference-layer tables, but
+`apps/server/src/store.ts` has always grouped them with `CardPurchase`/`BudgetLine` as one bucket,
+so `domainStore` keeps doing so rather than folding them into `reference-store.ts`. Only `getX`/
+`addTransaction`/`replaceBudgetLine` exist — no new mutation capability (`createCardPurchase`,
+`createBudgetLine`, etc.) was added; this increment only ports what already existed as
+read/write surface. `packages/db/src/schema/domain.ts`'s `budgetLines` table was missing the
+`isApplied` column entirely (added to the shared `BudgetLine` type back at Increment 50, never
+added to the DB schema) — added now (`packages/db/drizzle/0002_quick_harry_osborn.sql`), with no
+DB-side default, matching this schema's existing convention for `isArchived`/`isIncome` (every
+fixture/seed row sets it explicitly rather than relying on a default). `apps/server/src/db.ts`
+gained a second idempotent seed function, `seedRemainingFixtureData` — deliberately kept separate
+from `seedReferenceData` rather than merged into it, so seeding order stays explicit (it depends on
+`seedReferenceData` having already populated the accounts/categories/sub-envelopes its rows'
+foreign keys point at) and existing test files only needed one additional call, not a rewrite.
+`apps/server/src/store.ts` is now a pure re-export barrel with no local state at all — every table
+this app reads/writes lives behind `./db`'s three store singletons
+(`referenceStore`/`ledgerStore`/`domainStore`). Every router touching these tables
+(`ledger.ts`/`budget.ts`/`cards.ts`/`reporting.ts`) was converted to `async`/`await`, and several
+helper functions that used to call a store getter directly from inside a synchronous resolver
+callback (`resolveBudgetLineAndSubEnvelope`, `parseAndValidateApplications`, `findCardPurchase`,
+`parseAndValidateSettlements`) were refactored to take an already-fetched list as a parameter
+instead — the same pattern `findFundingSubEnvelope`/`resolveFundingSubEnvelope` already established
+at Increment 52, since `applyBudgetLinesToLedger`/`settleCardCycleInLedger`'s resolver contract is
+synchronous and can't itself `await`. The 6 testcontainers-backed test files from Increment 52 each
+gained one additional `await dbModule.seedRemainingFixtureData(dbModule.db);` call in their
+`beforeAll`, right after the existing `seedReferenceData` call. `apps/server/src/index.ts`'s
+`start()` now runs `seedRemainingFixtureData(db)` after `seedReferenceData(db)`, before
+`fastify.listen`. This completes the "real database" thread that began at Increment 43 — the
+in-memory `store.ts` arrays are gone entirely, and every table (all 10 in `packages/db`'s schema)
+is real, persisted, Postgres-backed data.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
