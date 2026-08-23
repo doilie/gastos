@@ -16,6 +16,13 @@ import { trpc } from "../../lib/trpc";
  * `BudgetLine`s, plus the "apply" mutation UI on each `BudgetLineRow` —
  * wiring `budget.applyBudgetLine` into the ledger. Mirrors `QuickAddForm`'s
  * collapsed-button → inline-controls → mutate → invalidate pattern.
+ *
+ * `BudgetLine.isApplied` is real, server-persisted state (not a transient
+ * mutation flag) — once a line has been applied, `BudgetLineApplyControls`
+ * renders a persistent "Applied" label instead of the Apply
+ * button/picker, and this survives navigating away from the tab and back,
+ * since it's read straight from the `budget.budgetLines` query rather than
+ * a mutation's local `isSuccess`.
  */
 export default function BudgetScreen() {
   const paydaySchedules = trpc.budget.paydaySchedules.useQuery();
@@ -120,22 +127,58 @@ function BudgetLineRow({
         budgetLineId={line.id}
         candidateAccountIds={candidateAccountIds}
         accounts={accounts}
+        isApplied={line.isApplied}
       />
     </View>
   );
 }
 
 /**
- * The apply-to-ledger controls for one `BudgetLine` row: a single "Apply"
- * button when the target sub-envelope has exactly one linked account (or is
+ * The apply-to-ledger controls for one `BudgetLine` row. When `isApplied` is
+ * `true` (real, server-persisted state), renders only a persistent "Applied"
+ * label — no button, nothing clickable, since re-applying would now be
+ * rejected server-side anyway. Otherwise renders a single "Apply" button
+ * when the target sub-envelope has exactly one linked account (or is
  * disabled when it has none), or an inline account picker when it has more
- * than one. On success shows a transient confirmation; on error a transient
- * inline message — neither persists past this component's lifetime, per the
- * accepted limitation that a `BudgetLine` is never marked "applied" server-
- * side. Split out of `BudgetLineRow` to keep it under the complexity/length
- * caps.
+ * than one. On error shows a transient inline message. Split out of
+ * `BudgetLineRow` to keep it under the complexity/length caps.
  */
 function BudgetLineApplyControls({
+  budgetLineId,
+  candidateAccountIds,
+  accounts,
+  isApplied,
+}: {
+  budgetLineId: string;
+  candidateAccountIds: readonly AccountId[];
+  accounts: readonly Account[];
+  isApplied: boolean;
+}) {
+  if (isApplied) {
+    return (
+      <View style={styles.applyContainer}>
+        <Text style={styles.appliedLabel}>Applied</Text>
+      </View>
+    );
+  }
+
+  return (
+    <PendingApplyControls
+      budgetLineId={budgetLineId}
+      candidateAccountIds={candidateAccountIds}
+      accounts={accounts}
+    />
+  );
+}
+
+/**
+ * The not-yet-applied path of `BudgetLineApplyControls`: a single "Apply"
+ * button when the target sub-envelope has exactly one linked account (or is
+ * disabled when it has none), or an inline account picker when it has more
+ * than one, plus a transient error message on failure. Split out to keep
+ * `BudgetLineApplyControls` under the length cap.
+ */
+function PendingApplyControls({
   budgetLineId,
   candidateAccountIds,
   accounts,
@@ -148,6 +191,7 @@ function BudgetLineApplyControls({
   const utils = trpc.useUtils();
   const applyBudgetLine = trpc.budget.applyBudgetLine.useMutation({
     onSuccess: () => {
+      void utils.budget.budgetLines.invalidate();
       void utils.ledger.subEnvelopeBalance.invalidate();
       void utils.ledger.transactions.invalidate();
     },
@@ -185,7 +229,6 @@ function BudgetLineApplyControls({
           onPick={applyToAccount}
         />
       )}
-      {applyBudgetLine.isSuccess && <Text style={styles.applySuccess}>Applied ✓</Text>}
       {applyBudgetLine.isError && (
         <Text style={styles.applyError}>Couldn&apos;t apply — try again.</Text>
       )}
@@ -292,9 +335,12 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 8,
   },
-  applySuccess: {
-    marginTop: 4,
-    fontSize: 13,
+  appliedLabel: {
+    alignSelf: "flex-start",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    fontSize: 14,
+    fontWeight: "600",
     color: "#0a0",
   },
   applyError: {

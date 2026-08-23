@@ -42,6 +42,7 @@ import {
   envelopeGroupIdFromString,
   formatCents,
   ledgerDateFromString,
+  markBudgetLineApplied,
   paydayScheduleIdFromString,
   subEnvelopeIdFromString,
 } from "@gastos/shared";
@@ -80,6 +81,9 @@ const mockAccountsUseQuery = trpc.reference.accounts
 const mockApplyBudgetLineUseMutation = trpc.budget.applyBudgetLine
   .useMutation as unknown as jest.Mock<MockMutationResult>;
 const mockUseUtils = trpc.useUtils as unknown as jest.Mock<{
+  budget: {
+    budgetLines: { invalidate: jest.Mock };
+  };
   ledger: {
     subEnvelopeBalance: { invalidate: jest.Mock };
     transactions: { invalidate: jest.Mock };
@@ -117,6 +121,9 @@ beforeEach(() => {
   mockAccountsUseQuery.mockReturnValue(success([]));
   mockApplyBudgetLineUseMutation.mockReturnValue(mockMutationResult());
   mockUseUtils.mockReturnValue({
+    budget: {
+      budgetLines: { invalidate: jest.fn() },
+    },
     ledger: {
       subEnvelopeBalance: { invalidate: jest.fn() },
       transactions: { invalidate: jest.fn() },
@@ -387,7 +394,13 @@ describe("BudgetLineApplyControls with no candidate accounts", () => {
 });
 
 describe("BudgetLineApplyControls mutation status states", () => {
-  it("renders Applied ✓ on success", async () => {
+  // The old transient "Applied ✓" success text was removed: a successful
+  // apply now relies entirely on the `budget.budgetLines` query refetch
+  // (via the new invalidation, asserted separately below) to transition the
+  // row into the persistent "Applied" label rendered from `isApplied`, not
+  // from the mutation's own `isSuccess` flag. This guards against that
+  // transient text reappearing as a regression.
+  it("does not render a transient success label even when the mutation reports isSuccess", async () => {
     mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
     mockBudgetLinesUseQuery.mockReturnValue(success([groceriesLine]));
     mockSubEnvelopesUseQuery.mockReturnValue(success([groceriesFund]));
@@ -398,7 +411,7 @@ describe("BudgetLineApplyControls mutation status states", () => {
 
     await render(<BudgetScreen />);
 
-    expect(screen.getByText("Applied ✓")).toBeTruthy();
+    expect(screen.queryByText("Applied ✓")).toBeNull();
   });
 
   it("renders an inline error message on error", async () => {
@@ -413,5 +426,86 @@ describe("BudgetLineApplyControls mutation status states", () => {
     await render(<BudgetScreen />);
 
     expect(screen.getByText("Couldn't apply — try again.")).toBeTruthy();
+  });
+
+  it("invalidates budget.budgetLines (plus subEnvelopeBalance/transactions) on a successful apply", async () => {
+    const invalidateBudgetLines = jest.fn();
+    const invalidateSubEnvelopeBalance = jest.fn();
+    const invalidateTransactions = jest.fn();
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([groceriesLine]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([groceriesFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA]));
+    mockUseUtils.mockReturnValue({
+      budget: { budgetLines: { invalidate: invalidateBudgetLines } },
+      ledger: {
+        subEnvelopeBalance: { invalidate: invalidateSubEnvelopeBalance },
+        transactions: { invalidate: invalidateTransactions },
+      },
+    });
+
+    await render(<BudgetScreen />);
+
+    // The component's `onSuccess` callback is passed straight to the mocked
+    // `useMutation`, which never invokes it on its own — capture it and
+    // invoke it directly to verify what it does, the same way this mutation
+    // would actually resolve in the app.
+    const options = mockApplyBudgetLineUseMutation.mock.calls[0]?.[0] as {
+      onSuccess: () => void;
+    };
+    options.onSuccess();
+
+    expect(invalidateBudgetLines).toHaveBeenCalledTimes(1);
+    expect(invalidateSubEnvelopeBalance).toHaveBeenCalledTimes(1);
+    expect(invalidateTransactions).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("BudgetLineApplyControls when the budget line is already applied", () => {
+  it("renders a persistent Applied label with no Apply button (single-candidate-account case)", async () => {
+    const appliedLine = markBudgetLineApplied(groceriesLine);
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([appliedLine]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([groceriesFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA]));
+
+    await render(<BudgetScreen />);
+
+    expect(screen.getByText("Applied")).toBeTruthy();
+    expect(screen.queryByText("Apply")).toBeNull();
+    expect(screen.queryByText(accountA.name)).toBeNull();
+  });
+
+  it("renders a persistent Applied label with no account picker (multi-candidate-account case)", async () => {
+    const appliedLine = markBudgetLineApplied(twoAccountLine);
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([appliedLine]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([twoAccountFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA, accountB]));
+
+    await render(<BudgetScreen />);
+
+    expect(screen.getByText("Applied")).toBeTruthy();
+    expect(screen.queryByText("Apply")).toBeNull();
+    expect(screen.queryByText(accountA.name)).toBeNull();
+    expect(screen.queryByText(accountB.name)).toBeNull();
+  });
+});
+
+describe("BudgetLineApplyControls isApplied survives a fresh mount", () => {
+  it("shows the persisted Applied label on the very first render, not a fresh Apply button — proving the state is read from the query, not a mutation's local isSuccess (this is what makes it survive navigating away from the tab and back)", async () => {
+    const appliedLine = markBudgetLineApplied(groceriesLine);
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([appliedLine]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([groceriesFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA]));
+    // Note: no mutation was fired in this test at all — isSuccess/isPending
+    // are both left at their default `false`, matching a fresh screen mount
+    // (e.g. from navigating back to the tab) with no in-flight interaction.
+
+    await render(<BudgetScreen />);
+
+    expect(screen.getByText("Applied")).toBeTruthy();
+    expect(screen.queryByText("Apply")).toBeNull();
   });
 });
