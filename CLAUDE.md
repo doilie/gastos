@@ -559,6 +559,25 @@ gained one additional `await dbModule.seedRemainingFixtureData(dbModule.db);` ca
 in-memory `store.ts` arrays are gone entirely, and every table (all 10 in `packages/db`'s schema)
 is real, persisted, Postgres-backed data.
 
+Increment 54 begins the "Transaction CRUD" thread (`req/what-i-want.txt`: "spendable transaction
+crud", "other envelope transaction crud" — both are just `Transaction`, which doesn't structurally
+distinguish spendable from envelope postings, so one CRUD surface covers both). Create/Read already
+existed (`ledger.addTransaction`/`ledger.transactions`); this adds Update/Delete. `updateTransaction`
+(`packages/shared/src/ledger-core/transaction.ts`) mirrors `updateAccount`'s partial-update
+pattern exactly — `id` and `counterTransactionId` are excluded from the `updates` parameter's type
+entirely (not just skipped at runtime), so misuse is a compile error; `counterTransactionId` is
+excluded because transfer-pair editing (via `createTransferPair`, never actually invoked by any
+router today) is out of scope for this increment, not because of any deeper invariant.
+`ledger.updateTransaction`/`ledger.deleteTransaction` tRPC mutations wrap it and a new
+`replaceTransaction`/`deleteTransaction` pair on `LedgerStore` (`apps/server/src/ledger-store.ts`),
+following the same `NOT_FOUND`/unwrapped-`Error`-propagation conventions as `reference.ts`'s
+`updateAccount`. `deleteTransaction` is a plain, unconditional hard delete with no
+referential-integrity check — confirmed nothing else in this schema references a `Transaction.id`
+by foreign key, unlike `Account`/`SubEnvelope`'s archive-based "delete." No UI wiring yet — a
+transaction list with edit/delete controls is the next, separate increment in this thread (no
+screen currently lists/edits individual transactions at all; the Today tab only shows the
+Spendable balance and the create-only `QuickAddForm`).
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
