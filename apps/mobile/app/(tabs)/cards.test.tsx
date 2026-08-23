@@ -1,4 +1,4 @@
-import { fireEvent, render, within } from "@testing-library/react-native";
+import { fireEvent, render, screen, within } from "@testing-library/react-native";
 
 jest.mock("../../lib/trpc", () => ({
   trpc: {
@@ -9,22 +9,44 @@ jest.mock("../../lib/trpc", () => ({
       cardPurchases: {
         useQuery: jest.fn(),
       },
+      settleCardPurchase: {
+        useMutation: jest.fn(),
+      },
     },
+    reference: {
+      subEnvelopes: {
+        useQuery: jest.fn(),
+      },
+      accounts: {
+        useQuery: jest.fn(),
+      },
+    },
+    useUtils: jest.fn(),
   },
 }));
 
 import {
+  type Account,
   type CardPurchase,
   type CreditCard,
+  type SubEnvelope,
+  accountIdFromString,
   cardCycleContaining,
   cardPurchaseIdFromString,
   centsFromInt,
+  createAccount,
   createCardPurchase,
   createCreditCard,
+  createSubEnvelope,
   creditCardIdFromString,
   currencyCodeFromString,
+  envelopeGroupIdFromString,
   formatCents,
+  fundingSourceFromAccount,
+  fundingSourceFromEnvelope,
   ledgerDateFromString,
+  SPENDABLE_ENVELOPE_ID,
+  subEnvelopeIdFromString,
   sumCardPurchasesInCycle,
 } from "@gastos/shared";
 
@@ -40,10 +62,33 @@ interface MockQueryResult<T> {
   data: T | undefined;
 }
 
+// Mirrors budget.test.tsx's `MockMutationResult` pattern: the component only
+// reads `mutate`, `isPending`, `isSuccess`, and `isError` off the mutation
+// result.
+interface MockMutationResult {
+  mutate: jest.Mock;
+  isPending: boolean;
+  isSuccess: boolean;
+  isError: boolean;
+}
+
 const mockCreditCardsUseQuery = trpc.cards.creditCards
   .useQuery as unknown as jest.Mock<MockQueryResult<CreditCard[]>>;
 const mockCardPurchasesUseQuery = trpc.cards.cardPurchases
   .useQuery as unknown as jest.Mock<MockQueryResult<CardPurchase[]>>;
+const mockSubEnvelopesUseQuery = trpc.reference.subEnvelopes
+  .useQuery as unknown as jest.Mock<MockQueryResult<SubEnvelope[]>>;
+const mockAccountsUseQuery = trpc.reference.accounts
+  .useQuery as unknown as jest.Mock<MockQueryResult<Account[]>>;
+const mockSettleCardPurchaseUseMutation = trpc.cards.settleCardPurchase
+  .useMutation as unknown as jest.Mock<MockMutationResult>;
+const mockUseUtils = trpc.useUtils as unknown as jest.Mock<{
+  cards: { cardPurchases: { invalidate: jest.Mock } };
+  ledger: {
+    transactions: { invalidate: jest.Mock };
+    subEnvelopeBalance: { invalidate: jest.Mock };
+  };
+}>;
 
 /** A pending query result, used for the "still loading" states. */
 function pending<T>(): MockQueryResult<T> {
@@ -58,6 +103,18 @@ function success<T>(data: T): MockQueryResult<T> {
 /** An errored query result. */
 function errored<T>(): MockQueryResult<T> {
   return { isPending: false, isError: true, data: undefined };
+}
+
+function mockMutationResult(
+  overrides: Partial<MockMutationResult> = {},
+): MockMutationResult {
+  return {
+    mutate: jest.fn(),
+    isPending: false,
+    isSuccess: false,
+    isError: false,
+    ...overrides,
+  };
 }
 
 // `cards.tsx` computes "today" live via `new Date()` and feeds it into
@@ -81,9 +138,26 @@ afterAll(() => {
   jest.useRealTimers();
 });
 
+beforeEach(() => {
+  mockSubEnvelopesUseQuery.mockReturnValue(success([]));
+  mockAccountsUseQuery.mockReturnValue(success([]));
+  mockSettleCardPurchaseUseMutation.mockReturnValue(mockMutationResult());
+  mockUseUtils.mockReturnValue({
+    cards: { cardPurchases: { invalidate: jest.fn() } },
+    ledger: {
+      transactions: { invalidate: jest.fn() },
+      subEnvelopeBalance: { invalidate: jest.fn() },
+    },
+  });
+});
+
 afterEach(() => {
   mockCreditCardsUseQuery.mockReset();
   mockCardPurchasesUseQuery.mockReset();
+  mockSubEnvelopesUseQuery.mockReset();
+  mockAccountsUseQuery.mockReset();
+  mockSettleCardPurchaseUseMutation.mockReset();
+  mockUseUtils.mockReset();
 });
 
 const php = currencyCodeFromString("PHP");
@@ -233,6 +307,26 @@ describe("CardsScreen loading state", () => {
 
     expect(getByText("Loading…")).toBeTruthy();
   });
+
+  it("renders Loading… while subEnvelopes is pending (not creditCards/cardPurchases)", async () => {
+    mockCreditCardsUseQuery.mockReturnValue(success([]));
+    mockCardPurchasesUseQuery.mockReturnValue(success([]));
+    mockSubEnvelopesUseQuery.mockReturnValue(pending());
+
+    const { getByText } = await render(<CardsScreen />);
+
+    expect(getByText("Loading…")).toBeTruthy();
+  });
+
+  it("renders Loading… while accounts is pending (not the other queries)", async () => {
+    mockCreditCardsUseQuery.mockReturnValue(success([]));
+    mockCardPurchasesUseQuery.mockReturnValue(success([]));
+    mockAccountsUseQuery.mockReturnValue(pending());
+
+    const { getByText } = await render(<CardsScreen />);
+
+    expect(getByText("Loading…")).toBeTruthy();
+  });
 });
 
 describe("CardsScreen error state", () => {
@@ -248,6 +342,26 @@ describe("CardsScreen error state", () => {
   it("renders an error message when cardPurchases errors (not creditCards)", async () => {
     mockCreditCardsUseQuery.mockReturnValue(success([]));
     mockCardPurchasesUseQuery.mockReturnValue(errored());
+
+    const { getByText } = await render(<CardsScreen />);
+
+    expect(getByText("Something went wrong.")).toBeTruthy();
+  });
+
+  it("renders an error message when subEnvelopes errors (not creditCards/cardPurchases)", async () => {
+    mockCreditCardsUseQuery.mockReturnValue(success([]));
+    mockCardPurchasesUseQuery.mockReturnValue(success([]));
+    mockSubEnvelopesUseQuery.mockReturnValue(errored());
+
+    const { getByText } = await render(<CardsScreen />);
+
+    expect(getByText("Something went wrong.")).toBeTruthy();
+  });
+
+  it("renders an error message when accounts errors (not the other queries)", async () => {
+    mockCreditCardsUseQuery.mockReturnValue(success([]));
+    mockCardPurchasesUseQuery.mockReturnValue(success([]));
+    mockAccountsUseQuery.mockReturnValue(errored());
 
     const { getByText } = await render(<CardsScreen />);
 
@@ -427,5 +541,202 @@ describe("CardsScreen cycle navigation", () => {
     expect(queryByText("Groceries")).toBeNull();
     expect(queryByText("Gas")).toBeNull();
     expect(getByText("Next ›")).not.toBeDisabled();
+  });
+});
+
+// Covers `CardPurchaseSettleControls`/`SettleButtonAndStatus`/`AccountPicker`
+// added to cards.tsx — the near-identical precedent is
+// budget.test.tsx's `BudgetLineApplyControls`/`AccountPicker` coverage, with
+// one addition: an unfunded (`"none"`) purchase has no button at all.
+const fundingAccount: Account = createAccount({
+  id: accountIdFromString("acc-fund"),
+  name: "Cash Wallet",
+  currency: php,
+});
+
+const accountA: Account = createAccount({
+  id: accountIdFromString("acc-a"),
+  name: "Checking",
+  currency: php,
+});
+
+const accountB: Account = createAccount({
+  id: accountIdFromString("acc-b"),
+  name: "Savings",
+  currency: php,
+});
+
+const accountFundedPurchase: CardPurchase = createCardPurchase({
+  id: cardPurchaseIdFromString("p-100"),
+  creditCardId: visaId,
+  date: ledgerDateFromString("2024-06-01"),
+  description: "Account Funded",
+  categoryId: null,
+  amount: centsFromInt(1000),
+  fundingSource: fundingSourceFromAccount(fundingAccount.id),
+});
+
+const singleAccountFund: SubEnvelope = createSubEnvelope({
+  id: subEnvelopeIdFromString("sub-single"),
+  name: "Single Fund",
+  groupId: envelopeGroupIdFromString("grp-1"),
+  accountIds: [accountA.id],
+});
+
+const envelopeFundedSinglePurchase: CardPurchase = createCardPurchase({
+  id: cardPurchaseIdFromString("p-101"),
+  creditCardId: visaId,
+  date: ledgerDateFromString("2024-06-02"),
+  description: "Envelope Funded Single",
+  categoryId: null,
+  amount: centsFromInt(2000),
+  fundingSource: fundingSourceFromEnvelope(singleAccountFund.id),
+});
+
+const twoAccountFund: SubEnvelope = createSubEnvelope({
+  id: subEnvelopeIdFromString("sub-multi"),
+  name: "Multi Fund",
+  groupId: envelopeGroupIdFromString("grp-1"),
+  accountIds: [accountA.id, accountB.id],
+});
+
+const envelopeFundedMultiPurchase: CardPurchase = createCardPurchase({
+  id: cardPurchaseIdFromString("p-102"),
+  creditCardId: visaId,
+  date: ledgerDateFromString("2024-06-03"),
+  description: "Envelope Funded Multi",
+  categoryId: null,
+  amount: centsFromInt(3000),
+  fundingSource: fundingSourceFromEnvelope(twoAccountFund.id),
+});
+
+const unfundedPurchase: CardPurchase = createCardPurchase({
+  id: cardPurchaseIdFromString("p-103"),
+  creditCardId: visaId,
+  date: ledgerDateFromString("2024-06-04"),
+  description: "Unfunded Purchase",
+  categoryId: null,
+  amount: centsFromInt(4000),
+});
+
+describe("CardPurchaseSettleControls with an account-funded purchase", () => {
+  it("settles immediately against that account and Spendable, with no picker", async () => {
+    const mutate = jest.fn();
+    mockCreditCardsUseQuery.mockReturnValue(success([visa]));
+    mockCardPurchasesUseQuery.mockReturnValue(success([accountFundedPurchase]));
+    mockAccountsUseQuery.mockReturnValue(success([fundingAccount]));
+    mockSettleCardPurchaseUseMutation.mockReturnValue(mockMutationResult({ mutate }));
+
+    await render(<CardsScreen />);
+    await fireEvent.press(screen.getByText("Settle"));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate).toHaveBeenCalledWith({
+      purchaseId: accountFundedPurchase.id,
+      accountId: fundingAccount.id,
+      subEnvelopeId: SPENDABLE_ENVELOPE_ID,
+    });
+    expect(screen.queryByText(fundingAccount.name)).toBeNull();
+  });
+});
+
+describe("CardPurchaseSettleControls with an envelope-funded purchase — one linked account", () => {
+  it("settles immediately against that account and the funding envelope, with no picker", async () => {
+    const mutate = jest.fn();
+    mockCreditCardsUseQuery.mockReturnValue(success([visa]));
+    mockCardPurchasesUseQuery.mockReturnValue(success([envelopeFundedSinglePurchase]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([singleAccountFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA]));
+    mockSettleCardPurchaseUseMutation.mockReturnValue(mockMutationResult({ mutate }));
+
+    await render(<CardsScreen />);
+    await fireEvent.press(screen.getByText("Settle"));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate).toHaveBeenCalledWith({
+      purchaseId: envelopeFundedSinglePurchase.id,
+      accountId: accountA.id,
+      subEnvelopeId: singleAccountFund.id,
+    });
+    expect(screen.queryByText(accountA.name)).toBeNull();
+  });
+});
+
+describe("CardPurchaseSettleControls with an envelope-funded purchase — two linked accounts", () => {
+  it("reveals a picker of account names on Settle, then mutates with the tapped account", async () => {
+    const mutate = jest.fn();
+    mockCreditCardsUseQuery.mockReturnValue(success([visa]));
+    mockCardPurchasesUseQuery.mockReturnValue(success([envelopeFundedMultiPurchase]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([twoAccountFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA, accountB]));
+    mockSettleCardPurchaseUseMutation.mockReturnValue(mockMutationResult({ mutate }));
+
+    await render(<CardsScreen />);
+    await fireEvent.press(screen.getByText("Settle"));
+
+    expect(mutate).not.toHaveBeenCalled();
+    expect(screen.getByText(accountA.name)).toBeTruthy();
+    expect(screen.getByText(accountB.name)).toBeTruthy();
+
+    await fireEvent.press(screen.getByText(accountB.name));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate).toHaveBeenCalledWith({
+      purchaseId: envelopeFundedMultiPurchase.id,
+      accountId: accountB.id,
+      subEnvelopeId: twoAccountFund.id,
+    });
+  });
+});
+
+describe("CardPurchaseSettleControls with an unfunded purchase", () => {
+  it('renders "Not funded yet" with no Settle button', async () => {
+    mockCreditCardsUseQuery.mockReturnValue(success([visa]));
+    mockCardPurchasesUseQuery.mockReturnValue(success([unfundedPurchase]));
+
+    const { getByText, queryByText } = await render(<CardsScreen />);
+
+    expect(getByText("Not funded yet")).toBeTruthy();
+    expect(queryByText("Settle")).toBeNull();
+  });
+});
+
+describe("CardPurchaseSettleControls mutation status states", () => {
+  it("shows Settling… and disables the button while pending", async () => {
+    mockCreditCardsUseQuery.mockReturnValue(success([visa]));
+    mockCardPurchasesUseQuery.mockReturnValue(success([accountFundedPurchase]));
+    mockAccountsUseQuery.mockReturnValue(success([fundingAccount]));
+    mockSettleCardPurchaseUseMutation.mockReturnValue(
+      mockMutationResult({ isPending: true }),
+    );
+
+    await render(<CardsScreen />);
+
+    expect(screen.getByText("Settling…")).toBeTruthy();
+    expect(screen.getByText("Settling…")).toBeDisabled();
+  });
+
+  it("renders Settled ✓ on success", async () => {
+    mockCreditCardsUseQuery.mockReturnValue(success([visa]));
+    mockCardPurchasesUseQuery.mockReturnValue(success([accountFundedPurchase]));
+    mockAccountsUseQuery.mockReturnValue(success([fundingAccount]));
+    mockSettleCardPurchaseUseMutation.mockReturnValue(
+      mockMutationResult({ isSuccess: true }),
+    );
+
+    await render(<CardsScreen />);
+
+    expect(screen.getByText("Settled ✓")).toBeTruthy();
+  });
+
+  it("renders an inline error message on error", async () => {
+    mockCreditCardsUseQuery.mockReturnValue(success([visa]));
+    mockCardPurchasesUseQuery.mockReturnValue(success([accountFundedPurchase]));
+    mockAccountsUseQuery.mockReturnValue(success([fundingAccount]));
+    mockSettleCardPurchaseUseMutation.mockReturnValue(mockMutationResult({ isError: true }));
+
+    await render(<CardsScreen />);
+
+    expect(screen.getByText("Couldn't settle — try again.")).toBeTruthy();
   });
 });
