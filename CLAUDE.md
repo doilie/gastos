@@ -578,6 +578,28 @@ transaction list with edit/delete controls is the next, separate increment in th
 screen currently lists/edits individual transactions at all; the Today tab only shows the
 Spendable balance and the create-only `QuickAddForm`).
 
+Increment 55 wires that UI, completing the "Transaction CRUD" thread end-to-end: the Today tab
+(`apps/mobile/app/(tabs)/index.tsx`) gained a `TransactionsSection` below the existing
+Spendable-balance header/`QuickAddForm` — the full `Transaction` list, sorted most-recent-first by
+date, each row with inline Edit/Delete controls mirroring `more.tsx`'s `AccountRow`/`CategoryRow`
+pattern exactly. The screen's outer container switched from a fixed centered `View` to a
+`ScrollView` (matching `more.tsx`/`reports.tsx`) since the list can now grow arbitrarily long; the
+balance header still gates on its own query independently, so a slow transactions/categories fetch
+never blocks it. The Edit form is **deliberately narrower than the underlying mutation**: only
+`date`/`description`/`amount` are editable (mirroring `QuickAddForm`'s own "no account/envelope/
+category picker yet" scope) — `categoryId`/`accountId`/`subEnvelopeId` show as read-only detail
+text (category resolved to a friendly name via a `reports.tsx`-style `categoryName` helper,
+`"Uncategorized"` for `null`). The amount field round-trips through `formatCents`/`parseCents`
+directly (pre-filled with the real signed value, sent back as-is) rather than `QuickAddForm`'s
+always-negate-a-positive-input convention, since here the user edits the true signed amount, not a
+hardcoded-expense input. Delete mirrors `CategoryDeleteConfirm`'s inline confirmation shape, but
+with only a generic fallback error message (no server-message passthrough) since
+`deleteTransaction` can never produce a meaningful specific rejection reason (unconditional hard
+delete, no referential-integrity check). This completes `req/what-i-want.txt`'s "spendable
+transaction crud"/"other envelope transaction crud" — create (prior increments), read (this list),
+update and delete (this thread) are all now live on the Today tab. Account/envelope/category
+pickers on the edit form remain a separate, later, not-yet-scoped increment.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
