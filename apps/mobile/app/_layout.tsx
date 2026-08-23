@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { httpBatchLink } from "@trpc/client";
 import { Stack } from "expo-router";
 import { useState } from "react";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 
 import { trpc } from "../lib/trpc";
 
@@ -22,10 +23,12 @@ export default function RootLayout() {
   );
 
   return (
-    <trpc.Provider client={trpcClient} queryClient={queryClient}>
-      <QueryClientProvider client={queryClient}>
-        <Stack screenOptions={{ headerShown: false }} />
-      </QueryClientProvider>
-    </trpc.Provider>
+    <SafeAreaProvider>
+      <trpc.Provider client={trpcClient} queryClient={queryClient}>
+        <QueryClientProvider client={queryClient}>
+          <Stack screenOptions={{ headerShown: false }} />
+        </QueryClientProvider>
+      </trpc.Provider>
+    </SafeAreaProvider>
   );
 }
