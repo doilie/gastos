@@ -446,6 +446,17 @@ row's existing control instead. The success summary text reads `settledTransacti
 sent. This completes the Cards tab enhancement thread: billing-cycle drilldown, single-purchase
 settle, and settle-cycle are all now live.
 
+Increment 49 adds month navigation to the Reports tab (`apps/mobile/app/(tabs)/reports.tsx`),
+which previously always showed the current calendar month with no way to browse others.
+`ReportsScreen` now holds local `period` state (`{year, month}`, defaulting to the current month)
+instead of computing it fresh on every render, and a new `MonthNavigation` component adds Prev/Next
+controls mirroring `cards.tsx`'s `CycleNavigation` pattern exactly — Next disables itself once back
+at the real current month. A new pure `shiftYearMonth` helper (reimplementing the same
+year-rollover technique as `card-cycle.ts`'s internal, unexported `shiftMonth`) handles the
+month-arithmetic. This was UI-only — no server changes were needed since
+`reporting.categorySpending` already accepted an arbitrary `{year, month}` and returns an empty
+report for months with no data rather than erroring.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
