@@ -10,7 +10,7 @@ import {
 import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
-import { findSpendableAccountId, QuickAddForm } from "../../components/QuickAddForm";
+import { QuickAddForm } from "../../components/QuickAddForm";
 import { trpc } from "../../lib/trpc";
 import { Colors, Spacing, Typography } from "../../theme";
 
@@ -80,10 +80,6 @@ export default function TodayScreen() {
     );
   }
 
-  const spendableAccountId = subEnvelopes.data
-    ? findSpendableAccountId(subEnvelopes.data)
-    : undefined;
-
   const dailyAllowance = dailySpendableAllowance(
     spendableBalance.data,
     paydaySchedules.data[0],
@@ -102,7 +98,7 @@ export default function TodayScreen() {
         <Text style={styles.subDetail}>
           Credit Card Budget: {formatCents(ccBudgetBalance.data)}
         </Text>
-        <QuickAddForm spendableAccountId={spendableAccountId} />
+        <QuickAddForm subEnvelopes={subEnvelopes.data ?? []} />
       </View>
       <TransactionsSection />
     </ScrollView>
