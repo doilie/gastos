@@ -12,6 +12,9 @@ jest.mock("../../lib/trpc", () => ({
       settleCardPurchase: {
         useMutation: jest.fn(),
       },
+      settleCardCycle: {
+        useMutation: jest.fn(),
+      },
     },
     reference: {
       subEnvelopes: {
@@ -72,6 +75,20 @@ interface MockMutationResult {
   isError: boolean;
 }
 
+// `settleCardCycle`'s mutation result is a distinct shape from
+// `settleCardPurchase`'s `MockMutationResult` because `SettleCycleControls`
+// also reads `data.settledTransactions.length`/`data.skippedPurchases.length`
+// for its success summary — the exact element type doesn't matter to the
+// component (only `.length` is read), so fixtures below use plain arrays of
+// arbitrary length rather than full `Transaction`/`CardPurchase` values.
+interface MockSettleCycleMutationResult {
+  mutate: jest.Mock;
+  isPending: boolean;
+  isSuccess: boolean;
+  isError: boolean;
+  data: { settledTransactions: unknown[]; skippedPurchases: unknown[] } | undefined;
+}
+
 const mockCreditCardsUseQuery = trpc.cards.creditCards
   .useQuery as unknown as jest.Mock<MockQueryResult<CreditCard[]>>;
 const mockCardPurchasesUseQuery = trpc.cards.cardPurchases
@@ -82,6 +99,8 @@ const mockAccountsUseQuery = trpc.reference.accounts
   .useQuery as unknown as jest.Mock<MockQueryResult<Account[]>>;
 const mockSettleCardPurchaseUseMutation = trpc.cards.settleCardPurchase
   .useMutation as unknown as jest.Mock<MockMutationResult>;
+const mockSettleCardCycleUseMutation = trpc.cards.settleCardCycle
+  .useMutation as unknown as jest.Mock<MockSettleCycleMutationResult>;
 const mockUseUtils = trpc.useUtils as unknown as jest.Mock<{
   cards: { cardPurchases: { invalidate: jest.Mock } };
   ledger: {
@@ -117,6 +136,21 @@ function mockMutationResult(
   };
 }
 
+/** Same shape as `mockMutationResult`, plus the `data` field
+ * `SettleCycleControls` reads for its success summary. */
+function mockSettleCycleMutationResult(
+  overrides: Partial<MockSettleCycleMutationResult> = {},
+): MockSettleCycleMutationResult {
+  return {
+    mutate: jest.fn(),
+    isPending: false,
+    isSuccess: false,
+    isError: false,
+    data: undefined,
+    ...overrides,
+  };
+}
+
 // `cards.tsx` computes "today" live via `new Date()` and feeds it into
 // `cardCycleContaining`, so the cycle window it derives is otherwise
 // dependent on wall-clock time at test-run time. Pinning the system clock
@@ -142,6 +176,7 @@ beforeEach(() => {
   mockSubEnvelopesUseQuery.mockReturnValue(success([]));
   mockAccountsUseQuery.mockReturnValue(success([]));
   mockSettleCardPurchaseUseMutation.mockReturnValue(mockMutationResult());
+  mockSettleCardCycleUseMutation.mockReturnValue(mockSettleCycleMutationResult());
   mockUseUtils.mockReturnValue({
     cards: { cardPurchases: { invalidate: jest.fn() } },
     ledger: {
@@ -157,6 +192,7 @@ afterEach(() => {
   mockSubEnvelopesUseQuery.mockReset();
   mockAccountsUseQuery.mockReset();
   mockSettleCardPurchaseUseMutation.mockReset();
+  mockSettleCardCycleUseMutation.mockReset();
   mockUseUtils.mockReset();
 });
 
@@ -738,5 +774,163 @@ describe("CardPurchaseSettleControls mutation status states", () => {
     await render(<CardsScreen />);
 
     expect(screen.getByText("Couldn't settle — try again.")).toBeTruthy();
+  });
+});
+
+// Covers `SettleCycleControls`/`buildUnambiguousSettlements` added to
+// cards.tsx — the batch "Settle cycle" control above each card's purchase
+// list. Reuses the account-funded / single-linked-account envelope-funded /
+// multi-linked-account envelope-funded / unfunded fixtures declared above for
+// `CardPurchaseSettleControls`, since `buildUnambiguousSettlements` reuses
+// the exact same `candidateAccountIdsForPurchase`/
+// `settlementSubEnvelopeIdForPurchase` helpers those tests already exercise.
+describe("SettleCycleControls batch settlement building", () => {
+  it("mutates with creditCardId/cycleStart/cycleEnd for the displayed cycle, and only the unambiguous purchases", async () => {
+    const mutate = jest.fn();
+    mockCreditCardsUseQuery.mockReturnValue(success([visa]));
+    mockCardPurchasesUseQuery.mockReturnValue(
+      success([
+        accountFundedPurchase,
+        envelopeFundedSinglePurchase,
+        envelopeFundedMultiPurchase,
+        unfundedPurchase,
+      ]),
+    );
+    mockSubEnvelopesUseQuery.mockReturnValue(success([singleAccountFund, twoAccountFund]));
+    mockAccountsUseQuery.mockReturnValue(success([fundingAccount, accountA, accountB]));
+    mockSettleCardCycleUseMutation.mockReturnValue(mockSettleCycleMutationResult({ mutate }));
+
+    await render(<CardsScreen />);
+    await fireEvent.press(screen.getByText("Settle cycle"));
+
+    const currentCycle = cardCycleContaining(visa.cutoffDay, ledgerDateFromString(PINNED_TODAY));
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate).toHaveBeenCalledWith({
+      creditCardId: visa.id,
+      cycleStart: currentCycle.start,
+      cycleEnd: currentCycle.end,
+      settlements: [
+        {
+          purchaseId: accountFundedPurchase.id,
+          accountId: fundingAccount.id,
+          subEnvelopeId: SPENDABLE_ENVELOPE_ID,
+        },
+        {
+          purchaseId: envelopeFundedSinglePurchase.id,
+          accountId: accountA.id,
+          subEnvelopeId: singleAccountFund.id,
+        },
+      ],
+    });
+  });
+});
+
+// Dated within Visa's *previous* cycle relative to PINNED_TODAY
+// (2024-04-18 – 2024-05-17, same window `coffee`/`tea` fall into above), so a
+// single Prev tap brings it into view.
+const prevCycleFundedPurchase: CardPurchase = createCardPurchase({
+  id: cardPurchaseIdFromString("p-104"),
+  creditCardId: visaId,
+  date: ledgerDateFromString("2024-04-20"),
+  description: "Prev Cycle Funded",
+  categoryId: null,
+  amount: centsFromInt(500),
+  fundingSource: fundingSourceFromAccount(fundingAccount.id),
+});
+
+describe("SettleCycleControls after cycle navigation", () => {
+  it("uses the currently-displayed cycle's start/end after Prev, not the original cycle", async () => {
+    const mutate = jest.fn();
+    mockCreditCardsUseQuery.mockReturnValue(success([visa]));
+    mockCardPurchasesUseQuery.mockReturnValue(
+      success([accountFundedPurchase, prevCycleFundedPurchase]),
+    );
+    mockAccountsUseQuery.mockReturnValue(success([fundingAccount]));
+    mockSettleCardCycleUseMutation.mockReturnValue(mockSettleCycleMutationResult({ mutate }));
+
+    await render(<CardsScreen />);
+    await fireEvent.press(screen.getByText("‹ Prev"));
+    await fireEvent.press(screen.getByText("Settle cycle"));
+
+    const prevCycle = cardCycleContaining(visa.cutoffDay, ledgerDateFromString("2024-05-01"));
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate).toHaveBeenCalledWith({
+      creditCardId: visa.id,
+      cycleStart: prevCycle.start,
+      cycleEnd: prevCycle.end,
+      settlements: [
+        {
+          purchaseId: prevCycleFundedPurchase.id,
+          accountId: fundingAccount.id,
+          subEnvelopeId: SPENDABLE_ENVELOPE_ID,
+        },
+      ],
+    });
+  });
+});
+
+describe("SettleCycleControls disabled/pending states", () => {
+  it("is disabled when the currently-displayed cycle has no purchases at all", async () => {
+    mockCreditCardsUseQuery.mockReturnValue(success([visa]));
+    mockCardPurchasesUseQuery.mockReturnValue(success([]));
+
+    await render(<CardsScreen />);
+
+    expect(screen.getByText("Settle cycle")).toBeDisabled();
+  });
+
+  it("shows Settling cycle… and disables the button while pending", async () => {
+    mockCreditCardsUseQuery.mockReturnValue(success([visa]));
+    mockCardPurchasesUseQuery.mockReturnValue(success([accountFundedPurchase]));
+    mockAccountsUseQuery.mockReturnValue(success([fundingAccount]));
+    mockSettleCardCycleUseMutation.mockReturnValue(
+      mockSettleCycleMutationResult({ isPending: true }),
+    );
+
+    await render(<CardsScreen />);
+
+    expect(screen.getByText("Settling cycle…")).toBeTruthy();
+    expect(screen.getByText("Settling cycle…")).toBeDisabled();
+  });
+});
+
+describe("SettleCycleControls result status states", () => {
+  it("shows the settled/skipped counts from the mutation response, not a local recomputation", async () => {
+    // Only one purchase (`accountFundedPurchase`) is in the cycle, which
+    // would produce a `settlements` array of length 1 — the mocked response
+    // below deliberately uses different lengths (3 and 5) so this assertion
+    // would fail if the component naively derived the summary from
+    // `settlements.length`/`cyclePurchases.length` instead of reading
+    // `data.settledTransactions.length`/`data.skippedPurchases.length` off
+    // the actual mutation response.
+    mockCreditCardsUseQuery.mockReturnValue(success([visa]));
+    mockCardPurchasesUseQuery.mockReturnValue(success([accountFundedPurchase]));
+    mockAccountsUseQuery.mockReturnValue(success([fundingAccount]));
+    mockSettleCardCycleUseMutation.mockReturnValue(
+      mockSettleCycleMutationResult({
+        isSuccess: true,
+        data: {
+          settledTransactions: Array.from({ length: 3 }, () => ({})),
+          skippedPurchases: Array.from({ length: 5 }, () => ({})),
+        },
+      }),
+    );
+
+    await render(<CardsScreen />);
+
+    expect(screen.getByText("Settled 3, skipped 5")).toBeTruthy();
+  });
+
+  it("shows an inline error message on error", async () => {
+    mockCreditCardsUseQuery.mockReturnValue(success([visa]));
+    mockCardPurchasesUseQuery.mockReturnValue(success([accountFundedPurchase]));
+    mockAccountsUseQuery.mockReturnValue(success([fundingAccount]));
+    mockSettleCardCycleUseMutation.mockReturnValue(
+      mockSettleCycleMutationResult({ isError: true }),
+    );
+
+    await render(<CardsScreen />);
+
+    expect(screen.getByText("Couldn't settle cycle — try again.")).toBeTruthy();
   });
 });

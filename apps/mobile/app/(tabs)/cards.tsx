@@ -39,8 +39,13 @@ function shiftLedgerDateByDays(date: LedgerDate, delta: number): LedgerDate {
  * the cycle containing today, with Prev/Next controls to browse past cycles
  * (and back to the present) per card. Each `CardPurchaseRow` also has a
  * "Settle" control wiring `cards.settleCardPurchase` into the ledger for that
- * single purchase — the multi-purchase "Settle cycle" batch mutation/UI
- * remains a separate, later increment.
+ * single purchase, and `SettleCycleControls` wires the batch
+ * `cards.settleCardCycle` mutation for the whole displayed cycle at once —
+ * scoped to only the unambiguous purchases (exactly one candidate account,
+ * per `candidateAccountIdsForPurchase`), leaving anything needing a picker or
+ * unfunded to be settled individually via its own row. This completes the
+ * Cards tab enhancement thread's UI: drilldown (Prev/Next cycle browsing),
+ * single-purchase settle, and settle-cycle.
  */
 export default function CardsScreen() {
   const creditCards = trpc.cards.creditCards.useQuery();
@@ -125,6 +130,12 @@ function CreditCardSection({
         onNext={() => setReferenceDate(shiftLedgerDateByDays(cycle.end, 1))}
       />
       <Text style={styles.cycleTotal}>{formatCents(cycleTotal)}</Text>
+      <SettleCycleControls
+        card={card}
+        cycle={cycle}
+        cyclePurchases={cyclePurchases}
+        subEnvelopes={subEnvelopes}
+      />
       {cyclePurchases.length === 0 ? (
         <Text style={styles.emptyText}>No purchases this cycle</Text>
       ) : (
@@ -169,6 +180,98 @@ function CycleNavigation({
       >
         <Text style={styles.cycleNavButtonText}>Next ›</Text>
       </Pressable>
+    </View>
+  );
+}
+
+/**
+ * Filters `purchases` down to the `{purchaseId, accountId, subEnvelopeId}`
+ * triples `cards.settleCardCycle` needs for the batch "Settle cycle" action —
+ * only purchases with exactly one candidate account (reusing the same
+ * `candidateAccountIdsForPurchase`/`settlementSubEnvelopeIdForPurchase`
+ * helpers the per-row settle control already uses) are included; anything
+ * requiring a picker (2+ candidates) or unfunded (0 candidates) is left out
+ * so the server reports it back in `skippedPurchases`.
+ */
+function buildUnambiguousSettlements(
+  purchases: readonly CardPurchase[],
+  subEnvelopes: readonly SubEnvelope[],
+): { purchaseId: string; accountId: string; subEnvelopeId: string }[] {
+  const settlements: { purchaseId: string; accountId: string; subEnvelopeId: string }[] = [];
+
+  for (const purchase of purchases) {
+    const candidateAccountIds = candidateAccountIdsForPurchase(purchase, subEnvelopes);
+    const accountId = candidateAccountIds.length === 1 ? candidateAccountIds[0] : undefined;
+    const subEnvelopeId = settlementSubEnvelopeIdForPurchase(purchase);
+    if (accountId === undefined || subEnvelopeId === undefined) {
+      continue;
+    }
+    settlements.push({ purchaseId: purchase.id, accountId, subEnvelopeId });
+  }
+
+  return settlements;
+}
+
+/**
+ * Batch "Settle cycle" control for one `CreditCardSection`'s currently-
+ * displayed cycle: settles every unambiguous purchase in `cyclePurchases` in
+ * one `cards.settleCardCycle` call (see `buildUnambiguousSettlements`).
+ * Disabled when there's nothing in the cycle to consider, or while the
+ * mutation is pending. On success shows a transient summary built from the
+ * mutation's own response (settled/skipped counts), on error a transient
+ * generic message — neither persists past this component's lifetime, same
+ * pattern as `CardPurchaseSettleControls`.
+ */
+function SettleCycleControls({
+  card,
+  cycle,
+  cyclePurchases,
+  subEnvelopes,
+}: {
+  card: CreditCard;
+  cycle: { start: LedgerDate; end: LedgerDate };
+  cyclePurchases: readonly CardPurchase[];
+  subEnvelopes: readonly SubEnvelope[];
+}) {
+  const utils = trpc.useUtils();
+  const settleCardCycle = trpc.cards.settleCardCycle.useMutation({
+    onSuccess: () => {
+      void utils.cards.cardPurchases.invalidate();
+      void utils.ledger.transactions.invalidate();
+      void utils.ledger.subEnvelopeBalance.invalidate();
+    },
+  });
+
+  function handlePress() {
+    const settlements = buildUnambiguousSettlements(cyclePurchases, subEnvelopes);
+    settleCardCycle.mutate({
+      creditCardId: card.id,
+      cycleStart: cycle.start,
+      cycleEnd: cycle.end,
+      settlements,
+    });
+  }
+
+  return (
+    <View style={styles.settleCycleContainer}>
+      <Pressable
+        style={styles.settleCycleButton}
+        disabled={cyclePurchases.length === 0 || settleCardCycle.isPending}
+        onPress={handlePress}
+      >
+        <Text style={styles.settleCycleButtonText}>
+          {settleCardCycle.isPending ? "Settling cycle…" : "Settle cycle"}
+        </Text>
+      </Pressable>
+      {settleCardCycle.isSuccess && settleCardCycle.data !== undefined && (
+        <Text style={styles.settleSuccess}>
+          Settled {settleCardCycle.data.settledTransactions.length}, skipped{" "}
+          {settleCardCycle.data.skippedPurchases.length}
+        </Text>
+      )}
+      {settleCardCycle.isError && (
+        <Text style={styles.settleError}>Couldn&apos;t settle cycle — try again.</Text>
+      )}
     </View>
   );
 }
@@ -436,6 +539,21 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#666",
     paddingLeft: 12,
+  },
+  settleCycleContainer: {
+    marginBottom: 10,
+  },
+  settleCycleButton: {
+    alignSelf: "flex-start",
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    borderColor: "#999",
+    borderRadius: 6,
+  },
+  settleCycleButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
   },
   rowContainer: {
     paddingVertical: 6,
