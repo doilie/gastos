@@ -432,6 +432,20 @@ calling the domain function, since `settleCardCycle` itself only filters by date
 card. Same accepted "nothing marked settled" limitation as `settleCardPurchase`. No UI wiring
 yet — a "Settle cycle" action is the last remaining piece of the Cards tab enhancement thread.
 
+Increment 48 wires that UI, completing the Cards tab enhancement thread end-to-end:
+`SettleCycleControls` (`apps/mobile/app/(tabs)/cards.tsx`) settles every UNAMBIGUOUS purchase
+(exactly one candidate account) in the currently-displayed cycle in one `cards.settleCardCycle`
+call — reusing the exact same `candidateAccountIdsForPurchase`/`settlementSubEnvelopeIdForPurchase`
+helpers the per-purchase `CardPurchaseSettleControls` already uses, via a new pure
+`buildUnambiguousSettlements` filter. Purchases needing a picker (2+ candidate accounts) or
+unfunded ones are deliberately left out of the batch — no new multi-account disambiguation UI was
+built for this flow, matching this app's established MVP-first pattern; the server correctly
+reports them back in `skippedPurchases`, and the user settles those individually via their own
+row's existing control instead. The success summary text reads `settledTransactions.length`/
+`skippedPurchases.length` off the mutation's own response, not a local recomputation from what was
+sent. This completes the Cards tab enhancement thread: billing-cycle drilldown, single-purchase
+settle, and settle-cycle are all now live.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
