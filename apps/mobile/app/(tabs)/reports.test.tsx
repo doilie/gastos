@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react-native";
+import { fireEvent, render } from "@testing-library/react-native";
 
 jest.mock("../../lib/trpc", () => ({
   trpc: {
@@ -63,6 +63,32 @@ function errored<T>(): MockQueryResult<T> {
 afterEach(() => {
   mockCategorySpendingUseQuery.mockReset();
   mockCategoriesUseQuery.mockReset();
+});
+
+// `reports.tsx` derives "the current calendar month" live via `new Date()`,
+// both for `ReportsScreen`'s initial `period` state and for
+// `MonthNavigation`'s Next-disabled check, so those are otherwise dependent
+// on wall-clock time at test-run time. Pinning the system clock (mirroring
+// cards.test.tsx's `PINNED_TODAY`/fake-timer setup for its near-identical
+// cycle-navigation coverage) lets every navigation assertion below know
+// exactly which month is "current". Pinned at UTC noon so nothing can roll
+// to an adjacent day/month regardless of the host machine's timezone.
+const PINNED_TODAY = "2024-06-15";
+
+beforeAll(() => {
+  jest.useFakeTimers({ advanceTimers: false });
+  jest.setSystemTime(new Date(`${PINNED_TODAY}T12:00:00.000Z`));
+});
+
+afterAll(() => {
+  jest.useRealTimers();
+});
+
+// A test below (the year-boundary case) pins the system clock to a
+// different date mid-suite; reset back to `PINNED_TODAY` after every test so
+// that override never leaks into a later, unrelated test.
+afterEach(() => {
+  jest.setSystemTime(new Date(`${PINNED_TODAY}T12:00:00.000Z`));
 });
 
 describe("ReportsScreen loading state", () => {
@@ -157,5 +183,75 @@ describe("ReportsScreen success state", () => {
     const { getByText } = await render(<ReportsScreen />);
 
     expect(getByText("No spending recorded this month.")).toBeTruthy();
+  });
+});
+
+// Covers the Prev/Next month navigation added to `ReportsScreen`/
+// `MonthNavigation` — the near-identical precedent is cards.test.tsx's
+// "CardsScreen cycle navigation" describe block, adapted from billing-cycle
+// dates to calendar year/month. `report.data`'s content (income/spending)
+// doesn't vary by the displayed period in these tests — `ReportsScreen`
+// renders `periodLabel` from its own local `period` state, not from
+// `report.data.period` — so a single static mocked report is reused
+// throughout and each test instead asserts on (a) the rendered label text
+// and (b) the `{year, month}` args the mocked query hook was actually
+// called with.
+describe("ReportsScreen month navigation", () => {
+  beforeEach(() => {
+    mockCategorySpendingUseQuery.mockReturnValue(success(emptyReport));
+    mockCategoriesUseQuery.mockReturnValue(success([]));
+  });
+
+  it("shows the current month by default, with Next disabled", async () => {
+    const { getByText } = await render(<ReportsScreen />);
+
+    expect(getByText("June 2024")).toBeTruthy();
+    expect(getByText("Next ›")).toBeDisabled();
+    expect(mockCategorySpendingUseQuery).toHaveBeenLastCalledWith({ year: 2024, month: 6 });
+  });
+
+  it("moves back one month on Prev, updating the label and re-querying with the new period", async () => {
+    const { getByText } = await render(<ReportsScreen />);
+
+    await fireEvent.press(getByText("‹ Prev"));
+
+    expect(getByText("May 2024")).toBeTruthy();
+    expect(mockCategorySpendingUseQuery).toHaveBeenLastCalledWith({ year: 2024, month: 5 });
+    expect(getByText("Next ›")).not.toBeDisabled();
+  });
+
+  it("moves back across a year boundary correctly (January to December of the previous year)", async () => {
+    jest.setSystemTime(new Date("2024-01-10T12:00:00.000Z"));
+
+    const { getByText } = await render(<ReportsScreen />);
+    expect(getByText("January 2024")).toBeTruthy();
+
+    await fireEvent.press(getByText("‹ Prev"));
+
+    expect(getByText("December 2023")).toBeTruthy();
+    expect(mockCategorySpendingUseQuery).toHaveBeenLastCalledWith({ year: 2023, month: 12 });
+  });
+
+  it("returns to the current month on Next after one Prev, re-disabling Next", async () => {
+    const { getByText } = await render(<ReportsScreen />);
+
+    await fireEvent.press(getByText("‹ Prev"));
+    await fireEvent.press(getByText("Next ›"));
+
+    expect(getByText("June 2024")).toBeTruthy();
+    expect(mockCategorySpendingUseQuery).toHaveBeenLastCalledWith({ year: 2024, month: 6 });
+    expect(getByText("Next ›")).toBeDisabled();
+  });
+
+  it("moves back multiple months after multiple Prev taps in a row", async () => {
+    const { getByText } = await render(<ReportsScreen />);
+
+    await fireEvent.press(getByText("‹ Prev"));
+    await fireEvent.press(getByText("‹ Prev"));
+    await fireEvent.press(getByText("‹ Prev"));
+
+    expect(getByText("March 2024")).toBeTruthy();
+    expect(mockCategorySpendingUseQuery).toHaveBeenLastCalledWith({ year: 2024, month: 3 });
+    expect(getByText("Next ›")).not.toBeDisabled();
   });
 });

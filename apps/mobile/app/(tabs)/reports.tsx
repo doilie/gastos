@@ -1,5 +1,6 @@
 import { formatCents, type Category, type CategoryId, type Cents } from "@gastos/shared";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 
 import { trpc } from "../../lib/trpc";
 
@@ -29,22 +30,41 @@ function periodLabel({ year, month }: { year: number; month: number }): string {
   return `${MONTH_NAMES[month - 1]} ${year}`;
 }
 
+/**
+ * Shifts `{year, month}` by `delta` calendar months (positive or negative),
+ * rolling the year over correctly in either direction. Same technique as
+ * `packages/shared/src/domain/card-cycle.ts`'s internal `shiftMonth` (not
+ * exported, so reimplemented here per this repo's per-file duplication
+ * convention for small helpers).
+ */
+function shiftYearMonth(
+  { year, month }: { year: number; month: number },
+  delta: number,
+): { year: number; month: number } {
+  const zeroIndexedMonth = month - 1 + delta;
+  const newMonth = ((zeroIndexedMonth % 12) + 12) % 12;
+  const yearOffset = Math.floor(zeroIndexedMonth / 12);
+  return { year: year + yearOffset, month: newMonth + 1 };
+}
+
 /** Resolves a category's display name, falling back to the raw id if unmatched. */
 function categoryName(categories: readonly Category[], categoryId: CategoryId): string {
   return categories.find((category) => category.id === categoryId)?.name ?? categoryId;
 }
 
 /**
- * Reports tab: read-only display of the current calendar month's category
- * spending vs. income (`reporting.categorySpending`). No month picker, no
- * navigation to past/future months — that's a separate, later, not-yet-
- * scoped increment, matching every other tab's "MVP read-only first" pattern
- * (Cards shows only the current billing cycle, Budget has no
- * apply-tracking).
+ * Reports tab: read-only display of a chosen calendar month's category
+ * spending vs. income (`reporting.categorySpending`), defaulting to the
+ * current month with Prev/Next navigation (`MonthNavigation`) to browse past
+ * months (and back to the present) — mirrors `cards.tsx`'s `CycleNavigation`
+ * pattern. No navigation past the current month into the future.
  */
 export default function ReportsScreen() {
-  const { year, month } = currentYearMonth();
-  const report = trpc.reporting.categorySpending.useQuery({ year, month });
+  const [period, setPeriod] = useState(currentYearMonth());
+  const report = trpc.reporting.categorySpending.useQuery({
+    year: period.year,
+    month: period.month,
+  });
   const categories = trpc.reference.categories.useQuery();
 
   if (report.isPending || categories.isPending) {
@@ -66,13 +86,48 @@ export default function ReportsScreen() {
   return (
     <ScrollView contentContainerStyle={styles.scrollContent}>
       <Text style={styles.title}>Reports</Text>
-      <Text style={styles.periodLabel}>{periodLabel(report.data.period)}</Text>
+      <MonthNavigation
+        period={period}
+        isCurrentMonth={
+          period.year === currentYearMonth().year && period.month === currentYearMonth().month
+        }
+        onPrev={() => setPeriod(shiftYearMonth(period, -1))}
+        onNext={() => setPeriod(shiftYearMonth(period, 1))}
+      />
       <IncomeSection incomeTotal={report.data.incomeTotal} />
       <CategorySpendingSection
         spendingByCategory={report.data.spendingByCategory}
         categories={categories.data}
       />
     </ScrollView>
+  );
+}
+
+/** Prev/heading/Next row for browsing the Reports tab's displayed month.
+ * Mirrors `cards.tsx`'s `CycleNavigation`. Prev is always enabled; Next is
+ * disabled once the currently-displayed month already is the current
+ * calendar month. */
+function MonthNavigation({
+  period,
+  isCurrentMonth,
+  onPrev,
+  onNext,
+}: {
+  period: { year: number; month: number };
+  isCurrentMonth: boolean;
+  onPrev: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <View style={styles.cycleNavRow}>
+      <Pressable style={styles.cycleNavButton} onPress={onPrev}>
+        <Text style={styles.cycleNavButtonText}>‹ Prev</Text>
+      </Pressable>
+      <Text style={styles.periodLabel}>{periodLabel(period)}</Text>
+      <Pressable style={styles.cycleNavButton} disabled={isCurrentMonth} onPress={onNext}>
+        <Text style={styles.cycleNavButtonText}>Next ›</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -131,7 +186,20 @@ const styles = StyleSheet.create({
   periodLabel: {
     fontSize: 16,
     color: "#666",
+  },
+  cycleNavRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: 16,
+  },
+  cycleNavButton: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  cycleNavButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
   },
   section: {
     marginBottom: 20,
