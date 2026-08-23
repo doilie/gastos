@@ -1,9 +1,24 @@
-import { formatCents, type Category, type CategoryId, type Transaction } from "@gastos/shared";
+import {
+  CREDIT_CARD_BUDGET_ENVELOPE_ID,
+  dailySpendableAllowance,
+  formatCents,
+  ledgerDateFromString,
+  type Category,
+  type CategoryId,
+  type Transaction,
+} from "@gastos/shared";
 import { useState } from "react";
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 
 import { findSpendableAccountId, QuickAddForm } from "../../components/QuickAddForm";
 import { trpc } from "../../lib/trpc";
+import { Colors, Spacing, Typography } from "../../theme";
+
+/** Same one-liner as `QuickAddForm.tsx`'s/`cards.tsx`'s `todayLedgerDate` —
+ * not worth extracting into a shared util yet for a single duplicated line. */
+function todayLedgerDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
 
 /** Matches a signed decimal like "150", "150.00", or "-150.00" (max 2dp). */
 const SIGNED_AMOUNT_SHAPE = /^-?\d+(\.\d{1,2})?$/;
@@ -39,8 +54,17 @@ function sortTransactionsByDateDescending(
 export default function TodayScreen() {
   const spendableBalance = trpc.ledger.spendableBalance.useQuery();
   const subEnvelopes = trpc.reference.subEnvelopes.useQuery();
+  const paydaySchedules = trpc.budget.paydaySchedules.useQuery();
+  const ccBudgetBalance = trpc.ledger.subEnvelopeBalance.useQuery({
+    subEnvelopeId: CREDIT_CARD_BUDGET_ENVELOPE_ID,
+  });
 
-  if (spendableBalance.isPending) {
+  const isPending =
+    spendableBalance.isPending || paydaySchedules.isPending || ccBudgetBalance.isPending;
+  const isError =
+    spendableBalance.isError || paydaySchedules.isError || ccBudgetBalance.isError;
+
+  if (isPending) {
     return (
       <View style={styles.container}>
         <Text>Loading…</Text>
@@ -48,7 +72,7 @@ export default function TodayScreen() {
     );
   }
 
-  if (spendableBalance.isError) {
+  if (isError) {
     return (
       <View style={styles.container}>
         <Text>Something went wrong.</Text>
@@ -60,6 +84,12 @@ export default function TodayScreen() {
     ? findSpendableAccountId(subEnvelopes.data)
     : undefined;
 
+  const dailyAllowance = dailySpendableAllowance(
+    spendableBalance.data,
+    paydaySchedules.data[0],
+    ledgerDateFromString(todayLedgerDate()),
+  );
+
   return (
     <ScrollView contentContainerStyle={styles.scrollContent}>
       <View style={styles.header}>
@@ -68,6 +98,10 @@ export default function TodayScreen() {
             "base currency" concept yet) is deferred future work — show the
             plain formatted number for now. */}
         <Text style={styles.balance}>{formatCents(spendableBalance.data)}</Text>
+        <Text style={styles.subDetail}>≈ {formatCents(dailyAllowance)} / day</Text>
+        <Text style={styles.subDetail}>
+          Credit Card Budget: {formatCents(ccBudgetBalance.data)}
+        </Text>
         <QuickAddForm spendableAccountId={spendableAccountId} />
       </View>
       <TransactionsSection />
@@ -438,6 +472,11 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontSize: 40,
     fontWeight: "700",
+  },
+  subDetail: {
+    marginTop: Spacing.xs,
+    color: Colors.textMuted,
+    ...Typography.detail,
   },
   section: {
     marginTop: 24,
