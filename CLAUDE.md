@@ -400,6 +400,22 @@ same `purchaseId` creates a second `Transaction` (same accepted limitation, not 
 wiring yet — a Settle control per purchase row is the next, separate increment, followed by the
 multi-purchase "Settle cycle" batch mutation/UI after that.
 
+Increment 46 wires that UI: each `CardPurchaseRow` (`apps/mobile/app/(tabs)/cards.tsx`) gets a
+`CardPurchaseSettleControls` component calling `cards.settleCardPurchase`, mirroring
+`budget.tsx`'s `BudgetLineApplyControls`/`AccountPicker` pattern exactly (auto-settle when there's
+exactly one candidate account, an inline picker when there's more than one, a disabled button when
+there are none). The candidate accounts and the fixed `subEnvelopeId` are derived from the
+purchase's `FundingSource`: account-funded purchases always settle against that one account,
+defaulting `subEnvelopeId` to the reserved Spendable envelope (this app's established
+"defaults to Spendable" convention, see `QuickAddForm`); envelope-funded purchases must settle
+against their funding `SubEnvelope`'s own linked accounts, with `subEnvelopeId` fixed to that
+envelope's id; unfunded (`"none"`) purchases render only a "Not funded yet" label — no
+assign-funding-source flow exists yet, so they can't be settled from this screen. `CardsScreen` now
+also queries `reference.subEnvelopes`/`reference.accounts` (new queries this screen didn't
+previously make) to resolve envelope-funded candidates and account display names. Same accepted
+"not marked settled" limitation as `applyBudgetLine`. The multi-purchase "Settle cycle" batch
+mutation/UI remains the last piece of this thread.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
