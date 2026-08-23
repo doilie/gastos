@@ -6,6 +6,9 @@ jest.mock("../../lib/trpc", () => ({
       spendableBalance: {
         useQuery: jest.fn(),
       },
+      subEnvelopeBalance: {
+        useQuery: jest.fn(),
+      },
       addTransaction: {
         useMutation: jest.fn(),
       },
@@ -27,6 +30,11 @@ jest.mock("../../lib/trpc", () => ({
         useQuery: jest.fn(),
       },
     },
+    budget: {
+      paydaySchedules: {
+        useQuery: jest.fn(),
+      },
+    },
     useUtils: jest.fn(),
   },
 }));
@@ -36,12 +44,16 @@ import {
   categoryIdFromString,
   centsFromInt,
   createCategory,
+  createPaydaySchedule,
   createTransaction,
+  dailySpendableAllowance,
   formatCents,
   ledgerDateFromString,
+  paydayScheduleIdFromString,
   subEnvelopeIdFromString,
   transactionIdFromString,
   type Category,
+  type PaydaySchedule,
   type Transaction,
 } from "@gastos/shared";
 
@@ -67,6 +79,15 @@ interface MockSubEnvelope {
   accountIds: string[];
 }
 
+// Minimal shape of a `PaydaySchedule` as read by `dailySpendableAllowance` —
+// same "just the fields the component/function needs" style as
+// `MockSubEnvelope` above.
+interface MockPaydaySchedule {
+  id: string;
+  name: string;
+  paydayDaysOfMonth: readonly number[];
+}
+
 interface MockMutationResult {
   mutate: jest.Mock;
   isPending: boolean;
@@ -88,6 +109,10 @@ const mockUpdateTransactionUseMutation = trpc.ledger.updateTransaction
   .useMutation as unknown as jest.Mock<MockMutationResult>;
 const mockDeleteTransactionUseMutation = trpc.ledger.deleteTransaction
   .useMutation as unknown as jest.Mock<MockMutationResult>;
+const mockPaydaySchedulesUseQuery = trpc.budget.paydaySchedules
+  .useQuery as unknown as jest.Mock<MockQueryResult<MockPaydaySchedule[]>>;
+const mockSubEnvelopeBalanceUseQuery = trpc.ledger.subEnvelopeBalance
+  .useQuery as unknown as jest.Mock<MockQueryResult<number>>;
 const mockUseUtils = trpc.useUtils as unknown as jest.Mock<{
   ledger: {
     spendableBalance: { invalidate: jest.Mock };
@@ -127,6 +152,20 @@ function successfulBalance(amount = 0): MockQueryResult<number> {
   return success(centsFromInt(amount));
 }
 
+/**
+ * The default `PaydaySchedule` fixture used by `beforeEach` below and by the
+ * daily-allowance assertions further down — a realistic single-schedule
+ * shape (matching what's actually seeded server-side), built through the
+ * real `createPaydaySchedule` factory so it's guaranteed valid, and reused
+ * as the single source of truth for both the mocked query response and the
+ * hand-computed expectation (via the real `dailySpendableAllowance`).
+ */
+const paydayScheduleFixture: PaydaySchedule = createPaydaySchedule({
+  id: paydayScheduleIdFromString("payday-schedule-default"),
+  name: "Semi-monthly",
+  paydayDaysOfMonth: [15, 31],
+});
+
 beforeEach(() => {
   // Default wiring for `QuickAddForm`'s own hooks — these existing tests
   // exercise `TodayScreen`'s three balance states, not the quick-add form
@@ -155,6 +194,13 @@ beforeEach(() => {
   mockCategoriesUseQuery.mockReturnValue(success([]));
   mockUpdateTransactionUseMutation.mockReturnValue(mockMutationResult());
   mockDeleteTransactionUseMutation.mockReturnValue(mockMutationResult());
+  // Default wiring for `TodayScreen`'s two new header-gating queries — a
+  // realistic single-schedule fixture (matching what's actually seeded
+  // server-side) and a plausible zero Credit Card Budget balance, so the 3
+  // pre-existing balance-display tests (and every other existing test in
+  // this file) keep passing unmodified.
+  mockPaydaySchedulesUseQuery.mockReturnValue(success([paydayScheduleFixture]));
+  mockSubEnvelopeBalanceUseQuery.mockReturnValue(success(centsFromInt(0)));
   mockUseUtils.mockReturnValue({
     ledger: {
       spendableBalance: { invalidate: jest.fn() },
@@ -171,6 +217,8 @@ afterEach(() => {
   mockCategoriesUseQuery.mockReset();
   mockUpdateTransactionUseMutation.mockReset();
   mockDeleteTransactionUseMutation.mockReset();
+  mockPaydaySchedulesUseQuery.mockReset();
+  mockSubEnvelopeBalanceUseQuery.mockReset();
   mockUseUtils.mockReset();
 });
 
@@ -546,5 +594,108 @@ describe("TransactionRow delete flow", () => {
     await fireEvent.press(screen.getByText("Delete"));
 
     expect(screen.getByText("Couldn't delete — try again.")).toBeTruthy();
+  });
+});
+
+describe("TodayScreen header gate — paydaySchedules/subEnvelopeBalance (Increment 64)", () => {
+  it("shows Loading… while paydaySchedules is pending", async () => {
+    mockUseQuery.mockReturnValue(successfulBalance(0));
+    mockPaydaySchedulesUseQuery.mockReturnValue(pending());
+
+    const { getByText } = await render(<TodayScreen />);
+
+    expect(getByText("Loading…")).toBeTruthy();
+  });
+
+  it("shows Loading… while subEnvelopeBalance (Credit Card Budget) is pending", async () => {
+    mockUseQuery.mockReturnValue(successfulBalance(0));
+    mockSubEnvelopeBalanceUseQuery.mockReturnValue(pending());
+
+    const { getByText } = await render(<TodayScreen />);
+
+    expect(getByText("Loading…")).toBeTruthy();
+  });
+
+  it("shows Something went wrong. when paydaySchedules errors", async () => {
+    mockUseQuery.mockReturnValue(successfulBalance(0));
+    mockPaydaySchedulesUseQuery.mockReturnValue(errored());
+
+    const { getByText } = await render(<TodayScreen />);
+
+    expect(getByText("Something went wrong.")).toBeTruthy();
+  });
+
+  it("shows Something went wrong. when subEnvelopeBalance (Credit Card Budget) errors", async () => {
+    mockUseQuery.mockReturnValue(successfulBalance(0));
+    mockSubEnvelopeBalanceUseQuery.mockReturnValue(errored());
+
+    const { getByText } = await render(<TodayScreen />);
+
+    expect(getByText("Something went wrong.")).toBeTruthy();
+  });
+});
+
+describe("TodayScreen Credit Card Budget balance display", () => {
+  it("renders the formatted subEnvelopeBalance result under the 'Credit Card Budget' label", async () => {
+    mockUseQuery.mockReturnValue(successfulBalance(1000));
+    const ccBalance = centsFromInt(250000);
+    mockSubEnvelopeBalanceUseQuery.mockReturnValue(success(ccBalance));
+
+    const { getByText } = await render(<TodayScreen />);
+
+    expect(getByText(`Credit Card Budget: ${formatCents(ccBalance)}`)).toBeTruthy();
+  });
+});
+
+// `dailySpendableAllowance` derives "how many days remain" from the real
+// system clock's "today" (via `index.tsx`'s own `todayLedgerDate`), so a
+// precise, hand-verifiable assertion needs the clock pinned — mirroring
+// `reports.test.tsx`/`cards.test.tsx`'s `PINNED_TODAY`/fake-timer setup for
+// their own date-dependent navigation coverage.
+const PINNED_TODAY = "2026-08-10";
+
+describe("TodayScreen daily allowance display (pinned system clock)", () => {
+  beforeAll(() => {
+    jest.useFakeTimers({ advanceTimers: false });
+    jest.setSystemTime(new Date(`${PINNED_TODAY}T12:00:00.000Z`));
+  });
+
+  afterAll(() => {
+    jest.useRealTimers();
+  });
+
+  it("renders the exact daily allowance computed from the balance and the default payday schedule", async () => {
+    const balance = centsFromInt(10000);
+    mockUseQuery.mockReturnValue(success(balance));
+
+    const { getByText } = await render(<TodayScreen />);
+
+    // Computed via the real `dailySpendableAllowance` against the exact same
+    // fixture/reference-date the component itself uses — with the system
+    // clock pinned to `PINNED_TODAY`, this is a precise, non-flaky
+    // end-to-end expectation, not a loosely-approximated one.
+    const expectedDailyAllowance = dailySpendableAllowance(
+      balance,
+      paydayScheduleFixture,
+      ledgerDateFromString(PINNED_TODAY),
+    );
+    expect(getByText(`≈ ${formatCents(expectedDailyAllowance)} / day`)).toBeTruthy();
+  });
+});
+
+describe("TodayScreen daily allowance — no-schedule fallback", () => {
+  it("still renders successfully when paydaySchedules.data is an empty array", async () => {
+    mockUseQuery.mockReturnValue(successfulBalance(5000));
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+
+    const { getByText } = await render(<TodayScreen />);
+
+    expect(getByText("Today")).toBeTruthy();
+    // `paydaySchedules.data[0]` is `undefined` here, so `dailySpendableAllowance`
+    // falls back to its documented month-end-only runway. The exact figure is
+    // dependent on the real, unpinned system clock's "today" in this describe
+    // block, so only presence of a formatted "≈ ... / day" figure is asserted
+    // — not the precise value (covered precisely, with a pinned clock, above).
+    expect(getByText(/^≈ .+ \/ day$/)).toBeTruthy();
   });
 });
