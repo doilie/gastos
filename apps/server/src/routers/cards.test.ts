@@ -229,6 +229,205 @@ describe("cards.settleCardPurchase — domain validation errors", () => {
   });
 });
 
+interface SettleCardCycleResult {
+  settledTransactions: SettledTransaction[];
+  skippedPurchases: { id: string }[];
+}
+
+// The seeded visaCard's (cutoffDay: 17) billing cycle containing all three
+// seeded CardPurchases (per store.ts: card-purchase-transport-1 dated
+// 2026-07-20, card-purchase-groceries-1 dated 2026-08-02,
+// card-purchase-groceries-2 dated 2026-08-12) is 2026-07-18–2026-08-17
+// inclusive.
+const VISA_CYCLE = { cycleStart: "2026-07-18", cycleEnd: "2026-08-17" };
+
+// NOTE: same shared-store discipline as cards.settleCardPurchase above —
+// settleCardCycle never marks anything "settled" either, so re-settling the
+// same seeded purchases across these test cases is safe.
+
+describe("cards.settleCardCycle — success", () => {
+  it("settles both funded purchases when settlements cover both, reporting the unfunded one as skipped", async () => {
+    const app = buildServer();
+    const data = await mutateCards<SettleCardCycleResult>(app, "settleCardCycle", {
+      creditCardId: "credit-card-visa",
+      ...VISA_CYCLE,
+      settlements: [
+        { purchaseId: "card-purchase-transport-1", accountId: "account-checking", subEnvelopeId: "spendable" },
+        {
+          purchaseId: "card-purchase-groceries-1",
+          accountId: "account-savings",
+          subEnvelopeId: "sub-envelope-groceries-fund",
+        },
+      ],
+    });
+
+    expect(data.settledTransactions).toHaveLength(2);
+    const transport = data.settledTransactions.find(
+      (transaction) => transaction.accountId === "account-checking",
+    );
+    expect(transport?.subEnvelopeId).toBe("spendable");
+    expect(transport?.amount).toBe(-45000);
+    const groceries = data.settledTransactions.find(
+      (transaction) => transaction.accountId === "account-savings",
+    );
+    expect(groceries?.subEnvelopeId).toBe("sub-envelope-groceries-fund");
+    expect(groceries?.amount).toBe(-210000);
+
+    expect(data.skippedPurchases).toHaveLength(1);
+    expect(data.skippedPurchases[0]?.id).toBe("card-purchase-groceries-2");
+    await app.close();
+  });
+});
+
+describe("cards.settleCardCycle — partial/empty batches", () => {
+  it("with an empty settlements array, settles nothing and skips all 3 in-cycle purchases", async () => {
+    const app = buildServer();
+    const data = await mutateCards<SettleCardCycleResult>(app, "settleCardCycle", {
+      creditCardId: "credit-card-visa",
+      ...VISA_CYCLE,
+      settlements: [],
+    });
+
+    expect(data.settledTransactions).toHaveLength(0);
+    expect(data.skippedPurchases).toHaveLength(3);
+    const skippedIds = data.skippedPurchases.map((purchase) => purchase.id);
+    expect(skippedIds).toEqual(
+      expect.arrayContaining([
+        "card-purchase-transport-1",
+        "card-purchase-groceries-1",
+        "card-purchase-groceries-2",
+      ]),
+    );
+    await app.close();
+  });
+
+  it("settles only the listed funded purchase, leaving the other funded-but-unlisted plus the unfunded one skipped", async () => {
+    const app = buildServer();
+    const data = await mutateCards<SettleCardCycleResult>(app, "settleCardCycle", {
+      creditCardId: "credit-card-visa",
+      ...VISA_CYCLE,
+      settlements: [
+        { purchaseId: "card-purchase-transport-1", accountId: "account-checking", subEnvelopeId: "spendable" },
+      ],
+    });
+
+    expect(data.settledTransactions).toHaveLength(1);
+    expect(data.settledTransactions[0]?.accountId).toBe("account-checking");
+
+    // Skipped: card-purchase-groceries-1 (funded but unlisted) and
+    // card-purchase-groceries-2 (unfunded) — 2 total, NOT
+    // card-purchase-transport-1, since it was settled.
+    expect(data.skippedPurchases).toHaveLength(2);
+    const skippedIds = data.skippedPurchases.map((purchase) => purchase.id);
+    expect(skippedIds).toEqual(
+      expect.arrayContaining(["card-purchase-groceries-1", "card-purchase-groceries-2"]),
+    );
+    expect(skippedIds).not.toContain("card-purchase-transport-1");
+    await app.close();
+  });
+
+  it("with a cycle window excluding all 3 purchases, settles nothing and skips nothing (not even as skipped)", async () => {
+    const app = buildServer();
+    const data = await mutateCards<SettleCardCycleResult>(app, "settleCardCycle", {
+      creditCardId: "credit-card-visa",
+      cycleStart: "2026-01-01",
+      cycleEnd: "2026-01-31",
+      settlements: [],
+    });
+
+    expect(data.settledTransactions).toHaveLength(0);
+    expect(data.skippedPurchases).toHaveLength(0);
+    await app.close();
+  });
+});
+
+describe("cards.settleCardCycle — domain validation error", () => {
+  it("propagates a non-2xx when a settlement resolves to an account not linked to the purchase's funding envelope", async () => {
+    const app = buildServer();
+    // account-checking is not one of sub-envelope-groceries-fund's linked
+    // accounts (only account-savings is) — same mismatch as
+    // settleCardPurchase's own equivalent test above. The whole batch
+    // request fails; this is not converted into a per-item skip.
+    const { statusCode } = await mutateCardsExpectingError(app, "settleCardCycle", {
+      creditCardId: "credit-card-visa",
+      ...VISA_CYCLE,
+      settlements: [
+        {
+          purchaseId: "card-purchase-groceries-1",
+          accountId: "account-checking",
+          subEnvelopeId: "sub-envelope-groceries-fund",
+        },
+      ],
+    });
+    expect(statusCode).toBeGreaterThanOrEqual(400);
+    await app.close();
+  });
+});
+
+describe("cards.settleCardCycle — NOT_FOUND validation errors", () => {
+  it("returns NOT_FOUND (404) for a well-formed but nonexistent creditCardId", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateCardsExpectingError(app, "settleCardCycle", {
+      creditCardId: "credit-card-does-not-exist",
+      ...VISA_CYCLE,
+      settlements: [],
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("returns NOT_FOUND (404) when a settlements[] entry has a nonexistent purchaseId", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateCardsExpectingError(app, "settleCardCycle", {
+      creditCardId: "credit-card-visa",
+      ...VISA_CYCLE,
+      settlements: [
+        { purchaseId: "card-purchase-does-not-exist", accountId: "account-checking", subEnvelopeId: "spendable" },
+      ],
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("returns NOT_FOUND (404) when a settlements[] entry has a nonexistent accountId", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateCardsExpectingError(app, "settleCardCycle", {
+      creditCardId: "credit-card-visa",
+      ...VISA_CYCLE,
+      settlements: [
+        {
+          purchaseId: "card-purchase-transport-1",
+          accountId: "account-does-not-exist",
+          subEnvelopeId: "spendable",
+        },
+      ],
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("returns NOT_FOUND (404) when a settlements[] entry has a nonexistent subEnvelopeId", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateCardsExpectingError(app, "settleCardCycle", {
+      creditCardId: "credit-card-visa",
+      ...VISA_CYCLE,
+      settlements: [
+        {
+          purchaseId: "card-purchase-transport-1",
+          accountId: "account-checking",
+          subEnvelopeId: "sub-envelope-does-not-exist",
+        },
+      ],
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+});
+
 describe("cards.settleCardPurchase — NOT_FOUND validation errors", () => {
   it("returns NOT_FOUND (404) for a well-formed but nonexistent purchaseId", async () => {
     const app = buildServer();
