@@ -476,6 +476,19 @@ inline. No UI wiring yet — the Budget tab's `BudgetLineApplyControls` still on
 transiently per-component-lifetime; reflecting the now-real, persisted `isApplied` state (and
 disabling re-apply) is the next, separate increment.
 
+Increment 51 wires that UI, completing the `BudgetLine.isApplied` fix thread: `BudgetLineRow`
+passes `line.isApplied` (real, server-persisted state from the `budget.budgetLines` query) into
+`BudgetLineApplyControls`, which now renders ONLY a persistent "Applied" label — no button, nothing
+clickable — whenever `isApplied` is `true`; the existing auto-apply/picker/disabled-when-no-
+candidates logic (unchanged) moved into a new `PendingApplyControls` sub-component for the
+not-yet-applied path. `applyBudgetLine`'s `onSuccess` now also invalidates `utils.budget.budgetLines`
+alongside its existing invalidations — this is what makes a row transition to the persistent
+"Applied" label via the query refetch, rather than the old transient `isSuccess`-only signal that
+reset on remount. The old transient "Applied ✓" success text was removed as redundant (the transient
+error text is unchanged). This directly fixes the specific bug the previous "accepted limitation"
+described: navigating away from the Budget tab and back now correctly shows an already-applied
+line as applied, instead of resetting to a fresh, re-postable "Apply" button.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
