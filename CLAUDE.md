@@ -600,6 +600,77 @@ transaction crud"/"other envelope transaction crud" — create (prior increments
 update and delete (this thread) are all now live on the Today tab. Account/envelope/category
 pickers on the edit form remain a separate, later, not-yet-scoped increment.
 
+Increment 56 fixes a real navigation bug: the mobile app's root `apps/mobile/app/_layout.tsx`
+rendered a bare `<Stack />` with no screen config, so Expo Router auto-headered the `(tabs)` route
+group with its literal folder name — a redundant header showing the text `"(tabs)"` above the tab
+layout's own correctly-titled per-screen headers. Fixed with `screenOptions={{ headerShown: false
+}}` on the root `<Stack>`; `(tabs)/_layout.tsx`'s own titles were already correct and untouched.
+
+Increment 57 begins a mobile design-system thread: `apps/mobile/theme.ts` consolidates the hex
+colors/spacing/typography every screen had independently reinvented in its own local
+`StyleSheet.create` (no shared tokens existed anywhere before this) — `Colors`
+(`background`/`surface`/`border`/`text`/`textMuted`/`accent`/`positive`/`error`), a `Spacing` scale
+(4/8/12/16/24/32), a `Typography` scale (`titleLarge`/`heading`/`body`/`detail`), and a `Radius`
+constant. Plain exported constants, no runtime theming/context system — this app has no dark-mode
+requirement. Not consumed by any screen yet in this increment. Also wires up `SafeAreaProvider`
+(from the already-installed but previously-unused `react-native-safe-area-context`) at the app
+root.
+
+Increment 58 gives the tab bar icons and active/inactive styling, sourced from `theme.ts`:
+`@expo/vector-icons` (not previously installed — added via `expo install`, per this repo's
+SDK-compatibility convention) provides one Ionicons icon per tab in `(tabs)/_layout.tsx`, plus
+`tabBarActiveTintColor`/`tabBarInactiveTintColor`/`tabBarStyle` — previously plain, unstyled,
+default React Navigation text-only tabs.
+
+Increments 59-61 migrate the 5 non-Today screens (`more.tsx`/`envelopes.tsx`/`cards.tsx`/
+`budget.tsx`/`reports.tsx`/`PlaceholderScreen.tsx`) from their local hardcoded style values onto
+`theme.ts`'s tokens — pure value substitution, no structural/behavioral change (verified: all 187
+existing mobile tests pass completely unmodified). `index.tsx` (Today) and `QuickAddForm.tsx` are
+deliberately excluded — they get substantial new functional UI in Increments 64/66 below and are
+styled fresh against the theme there, rather than migrated twice.
+
+Increment 62 begins the "Today tab overhaul" thread (`req/what-i-want.txt`: entry that accepts
+either an envelope-direct transaction or a credit-card purchase, funded from an envelope or "the
+next salary's credit card budget"; plus a "remaining spendable per day" display) with three small
+foundational pieces. `divideCents` (`packages/shared/src/money`) mirrors `multiplyCents`'s
+half-away-from-zero rounding convention, for splitting a balance across a day count.
+`daysBetweenLedgerDates` (`packages/shared/src/ledger-core/transaction.ts`) is a pure calendar-day
+diff via a `Date.UTC` round-trip. `CREDIT_CARD_BUDGET_ENVELOPE_ID`/`createCreditCardBudgetEnvelope`/
+`isCreditCardBudgetEnvelope` (`packages/shared/src/reference/envelope.ts`) is a second reserved
+singleton sub-envelope, mirroring Spendable exactly (always present, never archivable, `groupId:
+null`, excluded from the Envelopes tab's list for free since that screen already filters on
+`groupId !== null`) — "credit card budget" has no reserved concept in the data model before this;
+per `req/what-i-want.txt`'s "special budget allocated in the next salary," it's funded the
+*ordinary* way, via one or more `BudgetLine`s (across one or more paydays) targeting its id,
+applied through the existing `applyBudgetLine` machinery — no new BudgetLine concept was needed.
+Seeded server-side in `apps/server/src/db.ts` alongside Spendable.
+
+Increment 63 adds the daily-spendable domain math. `nextPaydayAfter`
+(`packages/shared/src/domain/payday-window.ts`) exposes the raw next-payday date
+`paydayWindowContaining` already computed internally but never returned — purely additive, doesn't
+change `PaydayWindow`'s shape. New file `packages/shared/src/domain/daily-spendable.ts` —
+`spendableRunwayEnd` (whichever comes first, the next payday or the current calendar month's end),
+`daysRemainingToSpend` (days until that date, floored at 1 to avoid a divide-by-zero on the
+boundary day), `dailySpendableAllowance` (the Spendable balance divided across those days). This
+single "whichever is sooner" rule naturally produces "days to month end" whenever no payday remains
+within the current month and "days to the upcoming payday" otherwise, with no special-casing.
+
+Increment 65 adds the server side of card-purchase creation — completely absent before this
+(`cards.ts` only ever exposed `settleCardPurchase`/`settleCardCycle`, acting on already-existing
+purchases; the pure `createCardPurchase` domain factory existed but nothing wired it to
+persistence). `DomainStore.addCardPurchase` (`apps/server/src/domain-store.ts`) inserts into
+`cardPurchases`, flattening `FundingSource` via a new `fundingSourceColumns` helper (the inverse of
+the existing `toFundingSource` row mapper). `cards.createCardPurchase` deliberately exposes only two
+`FundingSource` kinds — `"envelope"` (any sub-envelope, including the new reserved Credit Card
+Budget one) and `"none"` ("decide later") — not `"account"`, matching this feature's stated product
+scope; `categoryId` is always `null` (category picking is out of scope for this thread, same
+"narrower UI than the API" pattern used throughout this app). No ledger `Transaction` is ever posted
+by this mutation, matching `card-purchase.ts`'s own documented scope note — creating a purchase is
+purely a record of what's owed; only settling one posts to the ledger. "How much of the credit card
+budget is left" is deliberately *settled-only* — the reserved envelope's ordinary derived balance
+(applied allocations minus settled purchases) — an unsettled `CardPurchase` never affects it, no new
+reservation/aggregation logic was added.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
