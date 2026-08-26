@@ -200,8 +200,8 @@ function successfulBalance(amount = 0): MockQueryResult<number> {
  */
 const paydayScheduleFixture: PaydaySchedule = createPaydaySchedule({
   id: paydayScheduleIdFromString("payday-schedule-default"),
-  name: "Semi-monthly",
-  paydayDaysOfMonth: [15, 31],
+  name: "Semi-monthly (15th)",
+  paydayDaysOfMonth: [15],
 });
 
 beforeEach(() => {

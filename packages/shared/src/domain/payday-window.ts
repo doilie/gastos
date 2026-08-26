@@ -6,10 +6,12 @@
 // map in `packages/config/README.md`.
 //
 // A window runs from one payday (inclusive) through the day before the next
-// payday (inclusive). Unlike `CardCycle` (always exactly one cutoff per
-// month), a `PaydaySchedule` may configure multiple paydays per month (e.g.
-// semi-monthly), so "the window containing this date" requires scanning a
-// wider span of candidate paydays rather than just the current month's.
+// payday (inclusive). Each `PaydaySchedule` configures exactly one payday
+// day-of-month (a "semi-monthly" pattern is two separate schedules, not one
+// schedule with two days — see `reference/payday-schedule.ts`), but "the
+// window containing this date" still requires scanning a wider span than
+// just the current month's: a date can fall before this month's payday, in
+// which case the window actually starts with last month's occurrence.
 
 import { type LedgerDate, ledgerDateFromString } from "../ledger-core/transaction";
 import { type PaydaySchedule, paydaysInMonth } from "../reference/payday-schedule";
@@ -89,7 +91,7 @@ function nextLedgerDay(date: LedgerDate): LedgerDate {
  * one month before/after is sufficient: since `date` always falls within the
  * "current" month by construction, the payday bracketing it can only ever be
  * found within {previous, current} or {current, next} — never further out,
- * given `PaydaySchedule` is validated to have at least one payday per month.
+ * given `PaydaySchedule` is validated to have exactly one payday per month.
  */
 function candidatePaydays(schedule: PaydaySchedule, year: number, month: number): readonly LedgerDate[] {
   const previous = shiftMonth(year, month, -1);
@@ -155,10 +157,11 @@ export interface PaydayWindow {
 
 /**
  * Computes the payday window (start/end, both inclusive) that `date` falls
- * into for `schedule`. Unlike `cardCycleContaining` (always exactly one
- * cutoff per month), `schedule` may configure multiple paydays per month, so
- * candidates are gathered from the previous, current, and next month before
- * bracketing `date`.
+ * into for `schedule`. Even though `schedule` configures exactly one payday
+ * per month (same as `cardCycleContaining`'s cutoff), candidates are still
+ * gathered from the previous, current, and next month before bracketing
+ * `date` — a date early in a month can fall within the window started by
+ * last month's payday.
  */
 export function paydayWindowContaining(schedule: PaydaySchedule, date: LedgerDate): PaydayWindow {
   const { year, month } = parseLedgerDateParts(date);

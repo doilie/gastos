@@ -42,18 +42,18 @@ describe("createPaydaySchedule", () => {
   const id = paydayScheduleIdFromString("schedule-1");
 
   it("builds a valid PaydaySchedule from valid input, preserving id and paydayDaysOfMonth unchanged", () => {
-    const schedule = createPaydaySchedule({ id, name: "Semi-monthly", paydayDaysOfMonth: [15, 31] });
+    const schedule = createPaydaySchedule({ id, name: "Payday", paydayDaysOfMonth: [15] });
     expect(schedule).toEqual({
       id,
-      name: "Semi-monthly",
-      paydayDaysOfMonth: [15, 31],
+      name: "Payday",
+      paydayDaysOfMonth: [15],
       isPrimary: false,
     });
   });
 
   it("trims leading/trailing whitespace from name", () => {
-    const schedule = createPaydaySchedule({ id, name: "  Semi-monthly  ", paydayDaysOfMonth: [15] });
-    expect(schedule.name).toBe("Semi-monthly");
+    const schedule = createPaydaySchedule({ id, name: "  Payday  ", paydayDaysOfMonth: [15] });
+    expect(schedule.name).toBe("Payday");
   });
 
   it.each([
@@ -65,6 +65,12 @@ describe("createPaydaySchedule", () => {
 
   it("throws when paydayDaysOfMonth is empty", () => {
     expect(() => createPaydaySchedule({ id, name: "Empty", paydayDaysOfMonth: [] })).toThrow();
+  });
+
+  it("throws when paydayDaysOfMonth has more than one entry — a second payday in the same month is a separate schedule", () => {
+    expect(() =>
+      createPaydaySchedule({ id, name: "Semi-monthly", paydayDaysOfMonth: [15, 31] }),
+    ).toThrow();
   });
 
   it.each([
@@ -83,20 +89,11 @@ describe("createPaydaySchedule", () => {
   ])("throws on an invalid payday day: %s (%p)", (_label, day) => {
     expect(() => createPaydaySchedule({ id, name: "Monthly", paydayDaysOfMonth: [day] })).toThrow();
   });
-
-  it("throws when paydayDaysOfMonth contains a duplicate value", () => {
-    expect(() => createPaydaySchedule({ id, name: "Duplicate", paydayDaysOfMonth: [15, 15] })).toThrow();
-  });
-
-  it("accepts multiple distinct valid days (the semi-monthly case)", () => {
-    const schedule = createPaydaySchedule({ id, name: "Semi-monthly", paydayDaysOfMonth: [15, 31] });
-    expect(schedule.paydayDaysOfMonth).toEqual([15, 31]);
-  });
 });
 
 describe("updatePaydaySchedule", () => {
   const id = paydayScheduleIdFromString("schedule-1");
-  const original = createPaydaySchedule({ id, name: "Semi-monthly", paydayDaysOfMonth: [15, 31] });
+  const original = createPaydaySchedule({ id, name: "Payday", paydayDaysOfMonth: [15] });
 
   it("applies a partial name-only update, leaving paydayDaysOfMonth unchanged", () => {
     const updated = updatePaydaySchedule(original, { name: "Renamed" });
@@ -142,8 +139,8 @@ describe("updatePaydaySchedule", () => {
     expect(() => updatePaydaySchedule(original, { paydayDaysOfMonth: [day] })).toThrow();
   });
 
-  it("throws when paydayDaysOfMonth contains a duplicate value", () => {
-    expect(() => updatePaydaySchedule(original, { paydayDaysOfMonth: [15, 15] })).toThrow();
+  it("throws when paydayDaysOfMonth has more than one entry — a second payday in the same month is a separate schedule", () => {
+    expect(() => updatePaydaySchedule(original, { paydayDaysOfMonth: [15, 31] })).toThrow();
   });
 
   it("never touches isPrimary", () => {
@@ -155,7 +152,7 @@ describe("updatePaydaySchedule", () => {
 
 describe("markPaydaySchedulePrimary / unmarkPaydaySchedulePrimary", () => {
   const id = paydayScheduleIdFromString("schedule-1");
-  const schedule = createPaydaySchedule({ id, name: "Semi-monthly", paydayDaysOfMonth: [15, 31] });
+  const schedule = createPaydaySchedule({ id, name: "Payday", paydayDaysOfMonth: [15] });
 
   it("markPaydaySchedulePrimary sets isPrimary to true, leaving every other field unchanged", () => {
     const marked = markPaydaySchedulePrimary(schedule);
@@ -182,39 +179,26 @@ describe("markPaydaySchedulePrimary / unmarkPaydaySchedulePrimary", () => {
 
 describe("paydaysInMonth general behavior", () => {
   const id = paydayScheduleIdFromString("schedule-1");
-  const semiMonthly = createPaydaySchedule({ id, name: "Semi-monthly", paydayDaysOfMonth: [15, 31] });
+  const monthEnd = createPaydaySchedule({ id, name: "Month-end", paydayDaysOfMonth: [31] });
 
-  it("a 31-day month (January) returns both configured days unclamped, ascending", () => {
-    const paydays = paydaysInMonth(semiMonthly, 2024, 1);
-    expect(paydays).toEqual([ledgerDateFromString("2024-01-15"), ledgerDateFromString("2024-01-31")]);
+  it("a 31-day month (January) returns the configured day unclamped", () => {
+    const paydays = paydaysInMonth(monthEnd, 2024, 1);
+    expect(paydays).toEqual([ledgerDateFromString("2024-01-31")]);
   });
 
   it("a 30-day month (April) clamps 31 to 30", () => {
-    const paydays = paydaysInMonth(semiMonthly, 2024, 4);
-    expect(paydays).toEqual([ledgerDateFromString("2024-04-15"), ledgerDateFromString("2024-04-30")]);
+    const paydays = paydaysInMonth(monthEnd, 2024, 4);
+    expect(paydays).toEqual([ledgerDateFromString("2024-04-30")]);
   });
 
   it("February of a non-leap year clamps 31 to 28", () => {
-    const paydays = paydaysInMonth(semiMonthly, 2023, 2);
-    expect(paydays).toEqual([ledgerDateFromString("2023-02-15"), ledgerDateFromString("2023-02-28")]);
+    const paydays = paydaysInMonth(monthEnd, 2023, 2);
+    expect(paydays).toEqual([ledgerDateFromString("2023-02-28")]);
   });
 
   it("February of a leap year clamps 31 to 29", () => {
-    const paydays = paydaysInMonth(semiMonthly, 2024, 2);
-    expect(paydays).toEqual([ledgerDateFromString("2024-02-15"), ledgerDateFromString("2024-02-29")]);
-  });
-
-  it("returns days sorted ascending even when the schedule's input order is descending", () => {
-    const outOfOrder = createPaydaySchedule({ id, name: "Out of order", paydayDaysOfMonth: [31, 1] });
-    const paydays = paydaysInMonth(outOfOrder, 2024, 1);
-    expect(paydays).toEqual([ledgerDateFromString("2024-01-01"), ledgerDateFromString("2024-01-31")]);
-  });
-
-  it("two different configured days that clamp to the same actual date both appear in the result (no de-duplication)", () => {
-    const bothMonthEnd = createPaydaySchedule({ id, name: "Month-end x2", paydayDaysOfMonth: [30, 31] });
-    const paydays = paydaysInMonth(bothMonthEnd, 2023, 2);
-    expect(paydays).toEqual([ledgerDateFromString("2023-02-28"), ledgerDateFromString("2023-02-28")]);
-    expect(paydays).toHaveLength(2);
+    const paydays = paydaysInMonth(monthEnd, 2024, 2);
+    expect(paydays).toEqual([ledgerDateFromString("2024-02-29")]);
   });
 
   it.each([
@@ -222,14 +206,14 @@ describe("paydaysInMonth general behavior", () => {
     ["thirteen", 13],
     ["a non-integer (6.5)", 6.5],
   ])("throws on an invalid month: %s (%p)", (_label, month) => {
-    expect(() => paydaysInMonth(semiMonthly, 2024, month)).toThrow();
+    expect(() => paydaysInMonth(monthEnd, 2024, month)).toThrow();
   });
 });
 
 describe("paydaysInMonth property-based", () => {
-  it("always returns one date per configured payday day, all within the requested year/month", () => {
+  it("always returns exactly one date, matching the configured payday day, within the requested year/month", () => {
     const id = paydayScheduleIdFromString("schedule-1");
-    const schedule = createPaydaySchedule({ id, name: "Semi-monthly", paydayDaysOfMonth: [15, 31] });
+    const schedule = createPaydaySchedule({ id, name: "Payday", paydayDaysOfMonth: [15] });
     const year = 2024;
 
     fc.assert(

@@ -230,8 +230,8 @@ describe("store: sign-convention sanity check (derived balances)", () => {
 });
 
 describe("store: payday schedules", () => {
-  it("returns exactly 1 payday schedule", async () => {
-    expect(await getPaydaySchedules()).toHaveLength(1);
+  it("returns exactly 2 payday schedules (the semi-monthly seed's two single-day schedules)", async () => {
+    expect(await getPaydaySchedules()).toHaveLength(2);
   });
 });
 

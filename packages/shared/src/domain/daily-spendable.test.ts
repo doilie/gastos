@@ -6,23 +6,24 @@ import { createPaydaySchedule, paydayScheduleIdFromString } from "../reference/p
 import { budgetPeriodContaining, budgetPeriodRange } from "./budget-period";
 import { dailySpendableAllowance, daysRemainingToSpend, spendableRunwayEnd } from "./daily-spendable";
 
-// Mirrors the seeded-style semi-monthly schedule used elsewhere (e.g.
-// payday-window.test.ts's `semiMonthly` fixture): paydays on the 15th and
-// the last day of the month (31 clamps to the actual last day).
-const semiMonthlySchedule = createPaydaySchedule({
-  id: paydayScheduleIdFromString("schedule-semi-monthly"),
-  name: "Semi-monthly",
-  paydayDaysOfMonth: [15, 31],
-});
-
 // A schedule whose single configured payday does NOT land on month-end in a
 // 30/31-day month — this is the fixture that proves spendableRunwayEnd's
-// "whichever comes first" rule generalizes beyond the seed data's
-// coincidental day-31-clamps-to-month-end alignment.
+// "whichever comes first" rule generalizes beyond a payday that happens to
+// coincide with month-end.
 const singlePaydaySchedule = createPaydaySchedule({
   id: paydayScheduleIdFromString("schedule-single-payday"),
   name: "Monthly on the 10th",
   paydayDaysOfMonth: [10],
+});
+
+// A schedule whose single configured payday (31, clamping to the actual last
+// day of shorter months) coincides with month-end in June — used to prove
+// spendableRunwayEnd's "whichever comes first" tie behaves correctly when
+// both candidates land on the same date.
+const monthEndPaydaySchedule = createPaydaySchedule({
+  id: paydayScheduleIdFromString("schedule-month-end"),
+  name: "Month-end",
+  paydayDaysOfMonth: [31],
 });
 
 describe("spendableRunwayEnd — no schedule (undefined)", () => {
@@ -34,17 +35,19 @@ describe("spendableRunwayEnd — no schedule (undefined)", () => {
   });
 });
 
-describe("spendableRunwayEnd — seeded-style [15, 31] schedule", () => {
-  it("resolves to the 15th when referenceDate is before it", () => {
+describe("spendableRunwayEnd — payday before month-end", () => {
+  it("resolves to the payday itself when referenceDate is before it and it comes before month-end", () => {
     const referenceDate = ledgerDateFromString("2024-06-05");
-    expect(spendableRunwayEnd(semiMonthlySchedule, referenceDate)).toBe("2024-06-15");
+    expect(spendableRunwayEnd(singlePaydaySchedule, referenceDate)).toBe("2024-06-10");
   });
+});
 
-  it("resolves to month-end when referenceDate is after the 15th but before month-end (the day-31 payday clamps to coincide with month-end in this schedule)", () => {
+describe("spendableRunwayEnd — a payday that coincides with month-end", () => {
+  it("resolves to month-end when referenceDate is before it (the day-31 payday clamps to coincide with month-end in this schedule)", () => {
     const referenceDate = ledgerDateFromString("2024-06-20");
     const monthEnd = budgetPeriodRange(budgetPeriodContaining(referenceDate)).end;
     expect(monthEnd).toBe("2024-06-30");
-    expect(spendableRunwayEnd(semiMonthlySchedule, referenceDate)).toBe("2024-06-30");
+    expect(spendableRunwayEnd(monthEndPaydaySchedule, referenceDate)).toBe("2024-06-30");
   });
 });
 
@@ -74,12 +77,12 @@ describe("daysRemainingToSpend / dailySpendableAllowance — boundary day (Math.
   });
 
   it("returns exactly 1 when referenceDate IS month-end itself, with a schedule whose payday also coincides with month-end", () => {
-    // semiMonthlySchedule's second payday (day 31, clamped) coincides
-    // exactly with June's month-end (June 30) — referenceDate here equals
-    // BOTH the runway end candidates simultaneously.
+    // monthEndPaydaySchedule's payday (day 31, clamped) coincides exactly
+    // with June's month-end (June 30) — referenceDate here equals BOTH the
+    // runway end candidates simultaneously.
     const referenceDate = ledgerDateFromString("2024-06-30");
-    expect(spendableRunwayEnd(semiMonthlySchedule, referenceDate)).toBe(referenceDate);
-    expect(daysRemainingToSpend(semiMonthlySchedule, referenceDate)).toBe(1);
+    expect(spendableRunwayEnd(monthEndPaydaySchedule, referenceDate)).toBe(referenceDate);
+    expect(daysRemainingToSpend(monthEndPaydaySchedule, referenceDate)).toBe(1);
   });
 
   it("returns exactly 1 when referenceDate IS month-end, even for a schedule whose payday does NOT naturally coincide with month-end", () => {

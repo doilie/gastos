@@ -201,11 +201,21 @@ async function seedPaydaySchedules(targetDb: Db): Promise<void> {
   await targetDb
     .insert(paydaySchedules)
     .values([
+      // A "semi-monthly" pay pattern is two separate single-day schedules
+      // (Increment 76 constrains `paydayDaysOfMonth` to exactly one entry —
+      // a second payday in the same month is a new PaydaySchedule, not a
+      // second day on this one), not one schedule with two days.
       {
         id: paydayScheduleIdFromString("payday-schedule-default"),
-        name: "Semi-monthly",
-        paydayDaysOfMonth: [15, 31],
+        name: "Semi-monthly (15th)",
+        paydayDaysOfMonth: [15],
         isPrimary: true,
+      },
+      {
+        id: paydayScheduleIdFromString("payday-schedule-default-month-end"),
+        name: "Semi-monthly (month-end)",
+        paydayDaysOfMonth: [31],
+        isPrimary: false,
       },
     ])
     .onConflictDoNothing();

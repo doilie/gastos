@@ -257,7 +257,7 @@ export const budgetRouter = router({
   paydaySchedules: publicProcedure.query(async () => getPaydaySchedules()),
   budgetLines: publicProcedure.query(async () => getBudgetLines()),
   createPaydaySchedule: publicProcedure
-    .input(z.object({ name: z.string(), paydayDaysOfMonth: z.array(z.number().int()).min(1) }))
+    .input(z.object({ name: z.string(), paydayDaysOfMonth: z.array(z.number().int()).length(1) }))
     .mutation(async ({ input }) => {
       const schedule: PaydaySchedule = createPaydayScheduleInDomain({
         id: paydayScheduleIdFromString(randomUUID()),
@@ -297,7 +297,7 @@ export const budgetRouter = router({
       z.object({
         id: z.string(),
         name: z.string().optional(),
-        paydayDaysOfMonth: z.array(z.number().int()).min(1).optional(),
+        paydayDaysOfMonth: z.array(z.number().int()).length(1).optional(),
       }),
     )
     .mutation(async ({ input }) => {

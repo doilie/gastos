@@ -95,12 +95,13 @@ export default function BudgetScreen() {
 
 /** `PaydayScheduleRow`'s edit state and `updatePaydaySchedule` mutation — split into
  * its own hook so the row component itself stays under the line/complexity caps,
- * mirroring `more.tsx`'s `useAccountEdit`. `daysInput` round-trips through the same
- * comma-separated text shape `AddPaydayScheduleForm` uses. */
+ * mirroring `more.tsx`'s `useAccountEdit`. `dayInput` round-trips through the same
+ * single-day text shape `AddPaydayScheduleForm` uses (a schedule always has exactly
+ * one payday day-of-month). */
 function usePaydayScheduleEdit(schedule: PaydaySchedule) {
   const [isEditing, setIsEditing] = useState(false);
   const [name, setName] = useState(schedule.name);
-  const [daysInput, setDaysInput] = useState(schedule.paydayDaysOfMonth.join(", "));
+  const [dayInput, setDayInput] = useState(schedule.paydayDaysOfMonth.join(", "));
   const utils = trpc.useUtils();
   const updatePaydaySchedule = trpc.budget.updatePaydaySchedule.useMutation({
     onSuccess: () => {
@@ -111,7 +112,7 @@ function usePaydayScheduleEdit(schedule: PaydaySchedule) {
 
   function resetFields() {
     setName(schedule.name);
-    setDaysInput(schedule.paydayDaysOfMonth.join(", "));
+    setDayInput(schedule.paydayDaysOfMonth.join(", "));
   }
 
   function startEdit() {
@@ -130,7 +131,7 @@ function usePaydayScheduleEdit(schedule: PaydaySchedule) {
     updatePaydaySchedule.mutate({
       id: schedule.id,
       name: name.trim(),
-      paydayDaysOfMonth: parsePaydayDaysOfMonth(daysInput),
+      paydayDaysOfMonth: parsePaydayDayInput(dayInput),
     });
   }
 
@@ -138,8 +139,8 @@ function usePaydayScheduleEdit(schedule: PaydaySchedule) {
     isEditing,
     name,
     setName,
-    daysInput,
-    setDaysInput,
+    dayInput,
+    setDayInput,
     updatePaydaySchedule,
     startEdit,
     cancelEdit,
@@ -214,15 +215,15 @@ function PaydayScheduleRow({ schedule }: { schedule: PaydaySchedule }) {
     return (
       <AddPaydayScheduleFields
         name={edit.name}
-        daysInput={edit.daysInput}
+        dayInput={edit.dayInput}
         canSave={
           edit.name.trim().length > 0 &&
-          isValidPaydayDaysOfMonth(parsePaydayDaysOfMonth(edit.daysInput))
+          isValidPaydayDaysOfMonth(parsePaydayDayInput(edit.dayInput))
         }
         isPending={edit.updatePaydaySchedule.isPending}
         isError={edit.updatePaydaySchedule.isError}
         onNameChange={edit.setName}
-        onDaysInputChange={edit.setDaysInput}
+        onDayInputChange={edit.setDayInput}
         onCancel={edit.cancelEdit}
         onSave={edit.handleSave}
       />
@@ -276,7 +277,7 @@ function PaydayScheduleRowDisplay(props: PaydayScheduleRowDisplayProps) {
     <View>
       <View style={styles.scheduleRow}>
         <Text style={styles.scheduleText}>
-          {schedule.name} — paydays on day {schedule.paydayDaysOfMonth.join(", ")}
+          {schedule.name} — payday on day {schedule.paydayDaysOfMonth.join(", ")}
           {schedule.isPrimary ? " (primary)" : ""}
         </Text>
         <View style={styles.rowButtons}>
@@ -748,19 +749,26 @@ function AccountPicker({
 // PaydaySchedule side, wiring budget.createPaydaySchedule.
 // ---------------------------------------------------------------------------
 
-/** Parses a comma-separated "15, 31" style input into `[15, 31]`, dropping
- * blank segments. Does not validate range/duplicates — `isValidPaydayDaysOfMonth`
- * does that, matching this form's split "parse, then separately validate" shape. */
-function parsePaydayDaysOfMonth(raw: string): number[] {
-  return raw
-    .split(",")
-    .map((part) => part.trim())
-    .filter((part) => part.length > 0)
-    .map((part) => Number.parseInt(part, 10));
+/** Parses a single day-of-month input like "15" into `[15]` (or `[]` for a blank/
+ * unparseable input), matching `budget.createPaydaySchedule`/`updatePaydaySchedule`'s
+ * `paydayDaysOfMonth` array shape — kept as a single-element array, not a scalar,
+ * purely to match that server-side shape (see `payday-schedule.ts`'s own doc comment
+ * on `paydayDaysOfMonth` for why the array shape itself is kept). A `PaydaySchedule`
+ * always has exactly one payday day — a second payday in the same month is a
+ * separate schedule, not a second value here. Does not validate range —
+ * `isValidPaydayDaysOfMonth` does that. */
+function parsePaydayDayInput(raw: string): number[] {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) {
+    return [];
+  }
+  const parsed = Number.parseInt(trimmed, 10);
+  return Number.isNaN(parsed) ? [] : [parsed];
 }
 
 function isValidPaydayDaysOfMonth(days: readonly number[]): boolean {
-  return days.length > 0 && days.every((day) => Number.isInteger(day) && day >= 1 && day <= 31);
+  const [day] = days;
+  return day !== undefined && Number.isInteger(day) && day >= 1 && day <= 31;
 }
 
 /** `AddPaydayScheduleForm`'s state/mutation logic, split out to keep the form
@@ -769,7 +777,7 @@ function isValidPaydayDaysOfMonth(days: readonly number[]): boolean {
 function useAddPaydayScheduleForm() {
   const [isOpen, setIsOpen] = useState(false);
   const [name, setName] = useState("");
-  const [daysInput, setDaysInput] = useState("");
+  const [dayInput, setDayInput] = useState("");
   const utils = trpc.useUtils();
   const createPaydaySchedule = trpc.budget.createPaydaySchedule.useMutation({
     onSuccess: () => {
@@ -781,18 +789,18 @@ function useAddPaydayScheduleForm() {
   function closeForm() {
     setIsOpen(false);
     setName("");
-    setDaysInput("");
+    setDayInput("");
     createPaydaySchedule.reset();
   }
 
   function handleSave() {
     createPaydaySchedule.mutate({
       name: name.trim(),
-      paydayDaysOfMonth: parsePaydayDaysOfMonth(daysInput),
+      paydayDaysOfMonth: parsePaydayDayInput(dayInput),
     });
   }
 
-  return { isOpen, setIsOpen, name, setName, daysInput, setDaysInput, createPaydaySchedule, closeForm, handleSave };
+  return { isOpen, setIsOpen, name, setName, dayInput, setDayInput, createPaydaySchedule, closeForm, handleSave };
 }
 
 /** Inline "+ Add payday schedule" form: collapsed to a single button until
@@ -811,15 +819,15 @@ function AddPaydayScheduleForm() {
   return (
     <AddPaydayScheduleFields
       name={form.name}
-      daysInput={form.daysInput}
+      dayInput={form.dayInput}
       canSave={
         form.name.trim().length > 0 &&
-        isValidPaydayDaysOfMonth(parsePaydayDaysOfMonth(form.daysInput))
+        isValidPaydayDaysOfMonth(parsePaydayDayInput(form.dayInput))
       }
       isPending={form.createPaydaySchedule.isPending}
       isError={form.createPaydaySchedule.isError}
       onNameChange={form.setName}
-      onDaysInputChange={form.setDaysInput}
+      onDayInputChange={form.setDayInput}
       onCancel={form.closeForm}
       onSave={form.handleSave}
     />
@@ -829,12 +837,12 @@ function AddPaydayScheduleForm() {
 /** The revealed `AddPaydayScheduleForm`'s inputs/controls — split out to keep the parent under the line/complexity caps. */
 function AddPaydayScheduleFields(props: {
   name: string;
-  daysInput: string;
+  dayInput: string;
   canSave: boolean;
   isPending: boolean;
   isError: boolean;
   onNameChange: (value: string) => void;
-  onDaysInputChange: (value: string) => void;
+  onDayInputChange: (value: string) => void;
   onCancel: () => void;
   onSave: () => void;
 }) {
@@ -850,11 +858,11 @@ function AddPaydayScheduleFields(props: {
       />
       <TextInput
         style={styles.input}
-        placeholder="Payday days of month (e.g. 15, 31)"
-        keyboardType="numbers-and-punctuation"
-        value={props.daysInput}
+        placeholder="Payday day of month (1-31)"
+        keyboardType="number-pad"
+        value={props.dayInput}
         editable={!disabled}
-        onChangeText={props.onDaysInputChange}
+        onChangeText={props.onDayInputChange}
       />
       {props.isError && <Text style={styles.error}>Couldn&apos;t save — try again.</Text>}
       <FormSaveCancelButtons

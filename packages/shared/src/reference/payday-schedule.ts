@@ -3,9 +3,11 @@
 // Per `req/what-i-want.txt` ("budget: tracks where the salaries per month
 // will be placed in the sub-envelopes. there are multiple pay days to be
 // budgeted per month.") and HLD §3.4's "Payday window" row, this models the
-// configured day(s)-of-month payday(s) happen (e.g. semi-monthly payroll on
-// the 15th and the last day of the month). This is Reference-layer config,
-// like `CreditCard.cutoffDay` — a per-schedule field, not a shared
+// configured day-of-month a payday happens. Each `PaydaySchedule` holds
+// exactly one day (e.g. one schedule for the 15th, a separate schedule for
+// the last day of the month) — a "semi-monthly" pattern is two distinct
+// `PaydaySchedule`s, not one schedule with two days. This is Reference-layer
+// config, like `CreditCard.cutoffDay` — a per-schedule field, not a shared
 // magic-number constant.
 //
 // Scope note: the HLD's own §9 Open Item 1 ("Payday shift rule when the 15th
@@ -33,11 +35,14 @@ export function paydayScheduleIdFromString(value: string): PaydayScheduleId {
 export interface PaydaySchedule {
   readonly id: PaydayScheduleId;
   readonly name: string;
-  /** Day-of-month (1–31) each payday falls on, clamped to the actual last
-   * day of any shorter month (e.g. 31 clamps to Feb 28/29) — the same
-   * technique already used for CreditCard.cutoffDay. At least one entry;
-   * no duplicates. No non-banking-day shift rule is modeled (HLD open
-   * item, unresolved) — these are raw calendar days. */
+  /** Day-of-month (1–31) the payday falls on, clamped to the actual last day
+   * of any shorter month (e.g. 31 clamps to Feb 28/29) — the same technique
+   * already used for CreditCard.cutoffDay. Always exactly one entry — a
+   * second payday in the same month is a separate `PaydaySchedule`, not a
+   * second entry here (kept as an array, rather than a scalar, purely so
+   * `paydaysInMonth`'s existing per-schedule "one date per configured day"
+   * shape didn't need to change downstream). No non-banking-day shift rule
+   * is modeled (HLD open item, unresolved) — these are raw calendar days. */
   readonly paydayDaysOfMonth: readonly number[];
   /** Whether this is the one schedule consumers should treat as "the"
    * schedule when they need exactly one (e.g. the Today tab's daily-spendable
@@ -56,30 +61,29 @@ function assertNonEmptyName(name: string, context: string): string {
   return trimmed;
 }
 
-function assertNoDuplicateDays(paydayDaysOfMonth: readonly number[], context: string): void {
-  const uniqueDays = new Set(paydayDaysOfMonth);
-  if (uniqueDays.size !== paydayDaysOfMonth.length) {
-    throw new Error(`${context}: paydayDaysOfMonth must not contain duplicate values`);
-  }
-}
-
+/**
+ * Validates `paydayDaysOfMonth` has exactly one entry (a second payday in the
+ * same month belongs in a separate `PaydaySchedule`, so there's nothing to
+ * dedupe against — unlike the multi-day version this replaced) and that the
+ * entry is an integer from 1 to 31.
+ */
 function assertValidPaydayDaysOfMonth(paydayDaysOfMonth: readonly number[], context: string): readonly number[] {
-  if (paydayDaysOfMonth.length === 0) {
-    throw new Error(`${context}: must have at least one payday`);
+  if (paydayDaysOfMonth.length !== 1) {
+    throw new Error(
+      `${context}: must have exactly one payday — create a separate PaydaySchedule for another payday in the same month`,
+    );
   }
-  for (const day of paydayDaysOfMonth) {
-    if (!Number.isInteger(day) || day < 1 || day > 31) {
-      throw new Error(`${context}: each entry in paydayDaysOfMonth must be an integer from 1 to 31`);
-    }
+  const [day] = paydayDaysOfMonth;
+  if (day === undefined || !Number.isInteger(day) || day < 1 || day > 31) {
+    throw new Error(`${context}: the payday day must be an integer from 1 to 31`);
   }
-  assertNoDuplicateDays(paydayDaysOfMonth, context);
   return paydayDaysOfMonth;
 }
 
 /**
  * Factory/validator for `PaydaySchedule`: trims and validates `name` is
- * non-empty, validates `paydayDaysOfMonth` is non-empty, each entry is an
- * integer from 1 to 31, and there are no duplicate entries.
+ * non-empty, and validates `paydayDaysOfMonth` has exactly one entry, an
+ * integer from 1 to 31.
  */
 export function createPaydaySchedule(input: {
   id: PaydayScheduleId;

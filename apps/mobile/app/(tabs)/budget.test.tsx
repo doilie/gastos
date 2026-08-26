@@ -284,7 +284,7 @@ describe("BudgetScreen error state", () => {
 const salarySchedule: PaydaySchedule = createPaydaySchedule({
   id: paydayScheduleIdFromString("sched-1"),
   name: "Salary",
-  paydayDaysOfMonth: [15, 31],
+  paydayDaysOfMonth: [15],
 });
 
 const groceriesFund: SubEnvelope = createSubEnvelope({
@@ -312,7 +312,7 @@ describe("BudgetScreen success state", () => {
     const { getByText } = await render(<BudgetScreen />);
 
     expect(getByText("Budget")).toBeTruthy();
-    expect(getByText("Salary — paydays on day 15, 31")).toBeTruthy();
+    expect(getByText("Salary — payday on day 15")).toBeTruthy();
     expect(getByText("Groceries Fund")).toBeTruthy();
     expect(getByText("June groceries allocation")).toBeTruthy();
     expect(getByText(groceriesLine.paydayDate)).toBeTruthy();
@@ -595,7 +595,7 @@ describe("AddPaydayScheduleForm collapsed state", () => {
     await fireEvent.press(screen.getByText("+ Add payday schedule"));
 
     expect(screen.getByPlaceholderText("Name")).toBeTruthy();
-    expect(screen.getByPlaceholderText("Payday days of month (e.g. 15, 31)")).toBeTruthy();
+    expect(screen.getByPlaceholderText("Payday day of month (1-31)")).toBeTruthy();
     expect(screen.getByText("Cancel")).toBeTruthy();
     expect(screen.getByText("Save")).toBeTruthy();
   });
@@ -615,15 +615,12 @@ describe("AddPaydayScheduleForm save validation", () => {
 
     // Out-of-range day (32) keeps Save disabled even with a name entered.
     await fireEvent.changeText(
-      screen.getByPlaceholderText("Payday days of month (e.g. 15, 31)"),
+      screen.getByPlaceholderText("Payday day of month (1-31)"),
       "32",
     );
     expect(screen.getByText("Save")).toBeDisabled();
 
-    await fireEvent.changeText(
-      screen.getByPlaceholderText("Payday days of month (e.g. 15, 31)"),
-      "15, 31",
-    );
+    await fireEvent.changeText(screen.getByPlaceholderText("Payday day of month (1-31)"), "15");
     expect(screen.getByText("Save")).toBeEnabled();
   });
 });
@@ -637,14 +634,11 @@ describe("AddPaydayScheduleForm submission", () => {
     await render(<BudgetScreen />);
     await fireEvent.press(screen.getByText("+ Add payday schedule"));
     await fireEvent.changeText(screen.getByPlaceholderText("Name"), "  Monthly  ");
-    await fireEvent.changeText(
-      screen.getByPlaceholderText("Payday days of month (e.g. 15, 31)"),
-      "15, 31",
-    );
+    await fireEvent.changeText(screen.getByPlaceholderText("Payday day of month (1-31)"), "15");
     await fireEvent.press(screen.getByText("Save"));
 
     expect(mutate).toHaveBeenCalledTimes(1);
-    expect(mutate).toHaveBeenCalledWith({ name: "Monthly", paydayDaysOfMonth: [15, 31] });
+    expect(mutate).toHaveBeenCalledWith({ name: "Monthly", paydayDaysOfMonth: [15] });
   });
 });
 
@@ -924,7 +918,7 @@ describe("PaydayScheduleRow edit — collapsed state", () => {
 
     await render(<BudgetScreen />);
 
-    expect(screen.getByText("Salary — paydays on day 15, 31")).toBeTruthy();
+    expect(screen.getByText("Salary — payday on day 15")).toBeTruthy();
     expect(screen.getByText("Edit")).toBeTruthy();
     expect(screen.queryByPlaceholderText("Name")).toBeNull();
   });
@@ -939,9 +933,7 @@ describe("PaydayScheduleRow edit — collapsed state", () => {
     await fireEvent.press(screen.getByText("Edit"));
 
     expect(screen.getByPlaceholderText("Name").props["value"]).toBe("Salary");
-    expect(
-      screen.getByPlaceholderText("Payday days of month (e.g. 15, 31)").props["value"],
-    ).toBe("15, 31");
+    expect(screen.getByPlaceholderText("Payday day of month (1-31)").props["value"]).toBe("15");
   });
 });
 
@@ -959,7 +951,7 @@ describe("PaydayScheduleRow edit — cancel", () => {
     await fireEvent.changeText(screen.getByPlaceholderText("Name"), "Renamed");
     await fireEvent.press(screen.getByText("Cancel"));
 
-    expect(screen.getByText("Salary — paydays on day 15, 31")).toBeTruthy();
+    expect(screen.getByText("Salary — payday on day 15")).toBeTruthy();
     expect(screen.queryByPlaceholderText("Name")).toBeNull();
     expect(mutate).not.toHaveBeenCalled();
   });
@@ -977,17 +969,14 @@ describe("PaydayScheduleRow edit — save", () => {
     await render(<BudgetScreen />);
     await fireEvent.press(screen.getByText("Edit"));
     await fireEvent.changeText(screen.getByPlaceholderText("Name"), "  Renamed  ");
-    await fireEvent.changeText(
-      screen.getByPlaceholderText("Payday days of month (e.g. 15, 31)"),
-      "1, 15",
-    );
+    await fireEvent.changeText(screen.getByPlaceholderText("Payday day of month (1-31)"), "1");
     await fireEvent.press(screen.getByText("Save"));
 
     expect(mutate).toHaveBeenCalledTimes(1);
     expect(mutate).toHaveBeenCalledWith({
       id: salarySchedule.id,
       name: "Renamed",
-      paydayDaysOfMonth: [1, 15],
+      paydayDaysOfMonth: [1],
     });
   });
 
@@ -1272,7 +1261,7 @@ describe("PaydayScheduleRow set-primary control visibility", () => {
     await render(<BudgetScreen />);
 
     expect(screen.getByText("Set primary")).toBeTruthy();
-    expect(screen.getByText("Salary — paydays on day 15, 31")).toBeTruthy();
+    expect(screen.getByText("Salary — payday on day 15")).toBeTruthy();
   });
 
   it("hides the 'Set primary' control and adds a '(primary)' suffix for the primary schedule", async () => {
@@ -1285,7 +1274,7 @@ describe("PaydayScheduleRow set-primary control visibility", () => {
     await render(<BudgetScreen />);
 
     expect(screen.queryByText("Set primary")).toBeNull();
-    expect(screen.getByText("Salary — paydays on day 15, 31 (primary)")).toBeTruthy();
+    expect(screen.getByText("Salary — payday on day 15 (primary)")).toBeTruthy();
   });
 });
 

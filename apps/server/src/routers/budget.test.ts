@@ -427,7 +427,7 @@ describe("budget.createPaydaySchedule — success", () => {
     const app = buildServer();
     const created = await mutateBudget<CreatedPaydaySchedule>(app, "createPaydaySchedule", {
       name: "Persisted schedule",
-      paydayDaysOfMonth: [10, 25],
+      paydayDaysOfMonth: [10],
     });
 
     const schedules = await queryBudget<CreatedPaydaySchedule[]>(app, "paydaySchedules");
@@ -454,6 +454,18 @@ describe("budget.createPaydaySchedule — domain validation errors (unwrapped Er
       paydayDaysOfMonth: [32],
     });
     expect(statusCode).toBeGreaterThanOrEqual(400);
+    await app.close();
+  });
+});
+
+describe("budget.createPaydaySchedule — request shape validation (Zod, surfaces as 400)", () => {
+  it("rejects a paydayDaysOfMonth array with more than one entry — a second payday in the same month is a separate schedule", async () => {
+    const app = buildServer();
+    const { statusCode } = await mutateBudgetExpectingError(app, "createPaydaySchedule", {
+      name: "Semi-monthly",
+      paydayDaysOfMonth: [15, 31],
+    });
+    expect(statusCode).toBe(400);
     await app.close();
   });
 });
@@ -563,12 +575,12 @@ describe("budget.updatePaydaySchedule — success", () => {
     const updated = await mutateBudget<CreatedPaydaySchedule>(app, "updatePaydaySchedule", {
       id: created.id,
       name: "Renamed schedule",
-      paydayDaysOfMonth: [10, 20],
+      paydayDaysOfMonth: [20],
     });
 
     expect(updated.id).toBe(created.id);
     expect(updated.name).toBe("Renamed schedule");
-    expect(updated.paydayDaysOfMonth).toEqual([10, 20]);
+    expect(updated.paydayDaysOfMonth).toEqual([20]);
     await app.close();
   });
 
@@ -614,6 +626,22 @@ describe("budget.updatePaydaySchedule — validation errors", () => {
       name: "   ",
     });
     expect(statusCode).toBeGreaterThanOrEqual(400);
+    await app.close();
+  });
+});
+
+describe("budget.updatePaydaySchedule — request shape validation (Zod, surfaces as 400)", () => {
+  it("rejects a paydayDaysOfMonth array with more than one entry — a second payday in the same month is a separate schedule", async () => {
+    const app = buildServer();
+    const created = await mutateBudget<CreatedPaydaySchedule>(app, "createPaydaySchedule", {
+      name: "Valid",
+      paydayDaysOfMonth: [1],
+    });
+    const { statusCode } = await mutateBudgetExpectingError(app, "updatePaydaySchedule", {
+      id: created.id,
+      paydayDaysOfMonth: [15, 31],
+    });
+    expect(statusCode).toBe(400);
     await app.close();
   });
 });
