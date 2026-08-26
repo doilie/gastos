@@ -655,6 +655,17 @@ boundary day), `dailySpendableAllowance` (the Spendable balance divided across t
 single "whichever is sooner" rule naturally produces "days to month end" whenever no payday remains
 within the current month and "days to the upcoming payday" otherwise, with no special-casing.
 
+Increment 64 wires that daily-spendable math into the Today tab: `TodayScreen`
+(`apps/mobile/app/(tabs)/index.tsx`) now also queries `budget.paydaySchedules` and the reserved
+Credit Card Budget envelope's balance (`ledger.subEnvelopeBalance` with
+`CREDIT_CARD_BUDGET_ENVELOPE_ID`) alongside the existing Spendable balance, computing
+`dailySpendableAllowance` client-side and rendering it (`"≈ $X / day"`) plus the raw Credit Card
+Budget balance under the existing balance header — the header's loading/error gating now also
+depends on these two new queries, not just `spendableBalance`. This also fixes a real gap:
+`daily-spendable.ts` (added in Increment 63) had tests but was never re-exported from
+`@gastos/shared`'s public entry point, so nothing outside `packages/shared` could actually import
+it until this increment added the export.
+
 Increment 65 adds the server side of card-purchase creation — completely absent before this
 (`cards.ts` only ever exposed `settleCardPurchase`/`settleCardCycle`, acting on already-existing
 purchases; the pure `createCardPurchase` domain factory existed but nothing wired it to
@@ -670,6 +681,30 @@ purely a record of what's owed; only settling one posts to the ledger. "How much
 budget is left" is deliberately *settled-only* — the reserved envelope's ordinary derived balance
 (applied allocations minus settled purchases) — an unsettled `CardPurchase` never affects it, no new
 reservation/aggregation logic was added.
+
+Increment 66 completes the "Today tab overhaul" thread's UI, unifying `QuickAddForm` into a
+two-way mode toggle rather than adding a second, separate composer next to it. Envelope mode
+generalizes the old hardcoded-Spendable-only quick-add to any unarchived envelope (auto-resolving
+the funding account when the envelope has exactly one linked account, else an inline picker,
+mirroring `budget.tsx`'s `AccountPicker` pattern) — this also fixes a real gap where a successful
+add never invalidated `ledger.transactions`, so the new entry didn't show up in the Today tab's
+transaction list until an unrelated refetch. Card purchase mode calls the new
+`cards.createCardPurchase` (Increment 65) against any credit card (auto-resolved when there's only
+one, else a picker), funded from the Credit Card Budget envelope, another envelope, or left
+unfunded ("Decide later") — there is deliberately no default funding choice, so Save stays
+disabled until one is explicitly picked. `QuickAddForm` now takes the full `subEnvelopes` list
+(not just a pre-derived Spendable account id) so both the envelope picker and the
+Spendable/Credit-Card-Budget id resolution happen inside the component itself. No new server-side
+work was needed — this increment only wires already-existing mutations
+(`ledger.addTransaction`, `cards.createCardPurchase`) into one composer.
+`apps/mobile/components/QuickAddForm.test.tsx` was rewritten in step covering both modes (28
+tests: mode toggle, envelope-mode account resolution/save, card-mode credit-card
+selection/funding-choice/save), and `apps/mobile/app/(tabs)/index.test.tsx`'s `trpc` mock was
+extended with the three additional hooks `QuickAddForm` now calls unconditionally on every render
+(`reference.accounts`, `cards.creditCards`, `cards.createCardPurchase`) so `TodayScreen`'s own
+pre-existing tests keep rendering without crashing. This completes the "Today tab overhaul" thread
+(Increments 62-66): daily-spendable display and a single unified entry point for both envelope
+transactions and card purchases are both now live.
 
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
