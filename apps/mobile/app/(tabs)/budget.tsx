@@ -71,7 +71,7 @@ export default function BudgetScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionHeading}>Payday schedules</Text>
         {paydaySchedules.data.map((schedule) => (
-          <PaydayScheduleSummary key={schedule.id} schedule={schedule} />
+          <PaydayScheduleRow key={schedule.id} schedule={schedule} />
         ))}
         <AddPaydayScheduleForm />
       </View>
@@ -91,13 +91,97 @@ export default function BudgetScreen() {
   );
 }
 
-/** Renders one `PaydaySchedule`'s name plus its configured payday days. */
-function PaydayScheduleSummary({ schedule }: { schedule: PaydaySchedule }) {
-  const days = schedule.paydayDaysOfMonth.join(", ");
+/** `PaydayScheduleRow`'s edit state and `updatePaydaySchedule` mutation — split into
+ * its own hook so the row component itself stays under the line/complexity caps,
+ * mirroring `more.tsx`'s `useAccountEdit`. `daysInput` round-trips through the same
+ * comma-separated text shape `AddPaydayScheduleForm` uses. */
+function usePaydayScheduleEdit(schedule: PaydaySchedule) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [name, setName] = useState(schedule.name);
+  const [daysInput, setDaysInput] = useState(schedule.paydayDaysOfMonth.join(", "));
+  const utils = trpc.useUtils();
+  const updatePaydaySchedule = trpc.budget.updatePaydaySchedule.useMutation({
+    onSuccess: () => {
+      void utils.budget.paydaySchedules.invalidate();
+      setIsEditing(false);
+    },
+  });
+
+  function resetFields() {
+    setName(schedule.name);
+    setDaysInput(schedule.paydayDaysOfMonth.join(", "));
+  }
+
+  function startEdit() {
+    resetFields();
+    updatePaydaySchedule.reset();
+    setIsEditing(true);
+  }
+
+  function cancelEdit() {
+    resetFields();
+    updatePaydaySchedule.reset();
+    setIsEditing(false);
+  }
+
+  function handleSave() {
+    updatePaydaySchedule.mutate({
+      id: schedule.id,
+      name: name.trim(),
+      paydayDaysOfMonth: parsePaydayDaysOfMonth(daysInput),
+    });
+  }
+
+  return {
+    isEditing,
+    name,
+    setName,
+    daysInput,
+    setDaysInput,
+    updatePaydaySchedule,
+    startEdit,
+    cancelEdit,
+    handleSave,
+  };
+}
+
+/**
+ * One `PaydaySchedule` row: read-only display (name plus configured payday days) with
+ * an "Edit" control that reveals `AddPaydayScheduleFields` pre-filled — reusing that
+ * same fields component rather than duplicating it, since create and edit need the
+ * exact same name/days inputs.
+ */
+function PaydayScheduleRow({ schedule }: { schedule: PaydaySchedule }) {
+  const edit = usePaydayScheduleEdit(schedule);
+
+  if (edit.isEditing) {
+    return (
+      <AddPaydayScheduleFields
+        name={edit.name}
+        daysInput={edit.daysInput}
+        canSave={
+          edit.name.trim().length > 0 &&
+          isValidPaydayDaysOfMonth(parsePaydayDaysOfMonth(edit.daysInput))
+        }
+        isPending={edit.updatePaydaySchedule.isPending}
+        isError={edit.updatePaydaySchedule.isError}
+        onNameChange={edit.setName}
+        onDaysInputChange={edit.setDaysInput}
+        onCancel={edit.cancelEdit}
+        onSave={edit.handleSave}
+      />
+    );
+  }
+
   return (
-    <Text style={styles.scheduleText}>
-      {schedule.name} — paydays on day {days}
-    </Text>
+    <View style={styles.scheduleRow}>
+      <Text style={styles.scheduleText}>
+        {schedule.name} — paydays on day {schedule.paydayDaysOfMonth.join(", ")}
+      </Text>
+      <Pressable style={styles.editButton} onPress={edit.startEdit}>
+        <Text style={styles.editButtonText}>Edit</Text>
+      </Pressable>
+    </View>
   );
 }
 
@@ -107,9 +191,105 @@ function accountName(accounts: readonly Account[], accountId: AccountId): string
 }
 
 /**
+ * A `SubEnvelopeId` single-select's toggle-open/pick state, always starting from a
+ * concrete (never-undefined) id — split out of `useBudgetLineEdit` purely to keep it
+ * under the length cap; distinct from `useAddBudgetLineForm`'s own inline version,
+ * which starts `undefined` (no default) and would gain little from sharing this.
+ */
+function useSubEnvelopePickerState(initialId: SubEnvelopeId) {
+  const [subEnvelopeId, setSubEnvelopeId] = useState(initialId);
+  const [isPickerOpen, setIsPickerOpen] = useState(false);
+
+  function reset(id: SubEnvelopeId) {
+    setSubEnvelopeId(id);
+    setIsPickerOpen(false);
+  }
+
+  return {
+    subEnvelopeId,
+    isPickerOpen,
+    togglePicker: () => setIsPickerOpen((open) => !open),
+    pick: reset,
+    reset,
+  };
+}
+
+/**
+ * `BudgetLineRow`'s edit state and `updateBudgetLine` mutation — split into its own
+ * hook so the row component itself stays under the line/complexity caps, mirroring
+ * `usePaydayScheduleEdit` above. Server-side, `updateBudgetLine` rejects editing an
+ * already-applied line (Increment 70), so this hook is never invoked once
+ * `line.isApplied` is `true` — `BudgetLineRow` doesn't even offer an Edit control
+ * in that case.
+ */
+function useBudgetLineEdit(line: BudgetLine) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [paydayDate, setPaydayDate] = useState<string>(line.paydayDate);
+  const picker = useSubEnvelopePickerState(line.subEnvelopeId);
+  const [amount, setAmount] = useState(formatCents(line.amount));
+  const [description, setDescription] = useState(line.description);
+  const utils = trpc.useUtils();
+  const updateBudgetLine = trpc.budget.updateBudgetLine.useMutation({
+    onSuccess: () => {
+      void utils.budget.budgetLines.invalidate();
+      setIsEditing(false);
+    },
+  });
+
+  function resetFields() {
+    setPaydayDate(line.paydayDate);
+    picker.reset(line.subEnvelopeId);
+    setAmount(formatCents(line.amount));
+    setDescription(line.description);
+  }
+
+  function startEdit() {
+    resetFields();
+    updateBudgetLine.reset();
+    setIsEditing(true);
+  }
+
+  function cancelEdit() {
+    resetFields();
+    updateBudgetLine.reset();
+    setIsEditing(false);
+  }
+
+  function handleSave() {
+    updateBudgetLine.mutate({
+      id: line.id,
+      paydayDate: paydayDate.trim(),
+      subEnvelopeId: picker.subEnvelopeId,
+      amount,
+      description: description.trim(),
+    });
+  }
+
+  return {
+    isEditing,
+    paydayDate,
+    setPaydayDate,
+    subEnvelopeId: picker.subEnvelopeId,
+    isPickerOpen: picker.isPickerOpen,
+    togglePicker: picker.togglePicker,
+    pickSubEnvelope: picker.pick,
+    amount,
+    setAmount,
+    description,
+    setDescription,
+    updateBudgetLine,
+    startEdit,
+    cancelEdit,
+    handleSave,
+  };
+}
+
+/**
  * Renders one `BudgetLine`: its target sub-envelope's resolved name (falling
  * back to the raw `subEnvelopeId` if no match is found), description,
- * payday date, amount, and the apply-to-ledger controls.
+ * payday date, amount, an Edit control (reusing `AddBudgetLineFields` pre-filled,
+ * same reuse `PaydayScheduleRow` follows — hidden once `isApplied`, since the
+ * server would reject the mutation anyway), and the apply-to-ledger controls.
  */
 function BudgetLineRow({
   line,
@@ -120,12 +300,66 @@ function BudgetLineRow({
   subEnvelopes: readonly SubEnvelope[];
   accounts: readonly Account[];
 }) {
+  const edit = useBudgetLineEdit(line);
   const targetSubEnvelope = subEnvelopes.find(
     (subEnvelope) => subEnvelope.id === line.subEnvelopeId,
   );
   const subEnvelopeName = targetSubEnvelope?.name ?? line.subEnvelopeId;
   const candidateAccountIds = targetSubEnvelope?.accountIds ?? [];
 
+  if (edit.isEditing) {
+    return (
+      <AddBudgetLineFields
+        subEnvelopes={subEnvelopes}
+        paydayDate={edit.paydayDate}
+        subEnvelopeId={edit.subEnvelopeId}
+        isPickerOpen={edit.isPickerOpen}
+        amount={edit.amount}
+        description={edit.description}
+        canSave={
+          edit.paydayDate.trim().length > 0 &&
+          isValidPositiveAmount(edit.amount) &&
+          edit.description.trim().length > 0
+        }
+        isPending={edit.updateBudgetLine.isPending}
+        isError={edit.updateBudgetLine.isError}
+        onPaydayDateChange={edit.setPaydayDate}
+        onTogglePicker={edit.togglePicker}
+        onPickSubEnvelope={edit.pickSubEnvelope}
+        onAmountChange={edit.setAmount}
+        onDescriptionChange={edit.setDescription}
+        onCancel={edit.cancelEdit}
+        onSave={edit.handleSave}
+      />
+    );
+  }
+
+  return (
+    <BudgetLineRowDisplay
+      line={line}
+      subEnvelopeName={subEnvelopeName}
+      candidateAccountIds={candidateAccountIds}
+      accounts={accounts}
+      onEdit={edit.startEdit}
+    />
+  );
+}
+
+/** `BudgetLineRow`'s non-editing display — split out to keep `BudgetLineRow` under
+ * the line/complexity caps, mirroring `more.tsx`'s `AccountRowDisplay`. */
+function BudgetLineRowDisplay({
+  line,
+  subEnvelopeName,
+  candidateAccountIds,
+  accounts,
+  onEdit,
+}: {
+  line: BudgetLine;
+  subEnvelopeName: string;
+  candidateAccountIds: readonly AccountId[];
+  accounts: readonly Account[];
+  onEdit: () => void;
+}) {
   return (
     <View style={styles.rowContainer}>
       <View style={styles.row}>
@@ -134,7 +368,14 @@ function BudgetLineRow({
           <Text style={styles.lineDescription}>{line.description}</Text>
           <Text style={styles.lineDate}>{line.paydayDate}</Text>
         </View>
-        <Text style={styles.lineAmount}>{formatCents(line.amount)}</Text>
+        <View style={styles.rowButtons}>
+          <Text style={styles.lineAmount}>{formatCents(line.amount)}</Text>
+          {!line.isApplied && (
+            <Pressable style={styles.editButton} onPress={onEdit}>
+              <Text style={styles.editButtonText}>Edit</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
       <BudgetLineApplyControls
         budgetLineId={line.id}
@@ -662,6 +903,14 @@ const styles = StyleSheet.create({
     ...Typography.body,
     fontWeight: "600",
   },
+  editButton: {
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+  },
+  editButtonText: {
+    ...Typography.detail,
+    fontWeight: "600",
+  },
   form: {
     marginTop: Spacing.sm,
     width: 240,
@@ -721,6 +970,11 @@ const styles = StyleSheet.create({
   },
   scheduleText: {
     ...Typography.body,
+  },
+  scheduleRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingLeft: Spacing.md,
     marginBottom: Spacing.xs,
   },
@@ -731,6 +985,10 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     justifyContent: "space-between",
+    alignItems: "center",
+  },
+  rowButtons: {
+    flexDirection: "row",
     alignItems: "center",
   },
   lineSubEnvelope: {

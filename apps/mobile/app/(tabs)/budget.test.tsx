@@ -18,6 +18,12 @@ jest.mock("../../lib/trpc", () => ({
       createBudgetLine: {
         useMutation: jest.fn(),
       },
+      updatePaydaySchedule: {
+        useMutation: jest.fn(),
+      },
+      updateBudgetLine: {
+        useMutation: jest.fn(),
+      },
     },
     reference: {
       subEnvelopes: {
@@ -74,6 +80,7 @@ interface MockMutationResult {
   isPending: boolean;
   isSuccess: boolean;
   isError: boolean;
+  reset: jest.Mock;
 }
 
 const mockPaydaySchedulesUseQuery = trpc.budget.paydaySchedules
@@ -89,6 +96,10 @@ const mockApplyBudgetLineUseMutation = trpc.budget.applyBudgetLine
 const mockCreatePaydayScheduleUseMutation = trpc.budget.createPaydaySchedule
   .useMutation as unknown as jest.Mock<MockMutationResult>;
 const mockCreateBudgetLineUseMutation = trpc.budget.createBudgetLine
+  .useMutation as unknown as jest.Mock<MockMutationResult>;
+const mockUpdatePaydayScheduleUseMutation = trpc.budget.updatePaydaySchedule
+  .useMutation as unknown as jest.Mock<MockMutationResult>;
+const mockUpdateBudgetLineUseMutation = trpc.budget.updateBudgetLine
   .useMutation as unknown as jest.Mock<MockMutationResult>;
 const mockUseUtils = trpc.useUtils as unknown as jest.Mock<{
   budget: {
@@ -124,6 +135,7 @@ function mockMutationResult(
     isPending: false,
     isSuccess: false,
     isError: false,
+    reset: jest.fn(),
     ...overrides,
   };
 }
@@ -133,6 +145,8 @@ beforeEach(() => {
   mockApplyBudgetLineUseMutation.mockReturnValue(mockMutationResult());
   mockCreatePaydayScheduleUseMutation.mockReturnValue(mockMutationResult());
   mockCreateBudgetLineUseMutation.mockReturnValue(mockMutationResult());
+  mockUpdatePaydayScheduleUseMutation.mockReturnValue(mockMutationResult());
+  mockUpdateBudgetLineUseMutation.mockReturnValue(mockMutationResult());
   mockUseUtils.mockReturnValue({
     budget: {
       paydaySchedules: { invalidate: jest.fn() },
@@ -153,6 +167,8 @@ afterEach(() => {
   mockApplyBudgetLineUseMutation.mockReset();
   mockCreatePaydayScheduleUseMutation.mockReset();
   mockCreateBudgetLineUseMutation.mockReset();
+  mockUpdatePaydayScheduleUseMutation.mockReset();
+  mockUpdateBudgetLineUseMutation.mockReset();
   mockUseUtils.mockReset();
 });
 
@@ -737,6 +753,201 @@ describe("AddBudgetLineForm mutation error state", () => {
 
     await render(<BudgetScreen />);
     await fireEvent.press(screen.getByText("+ Add budget line"));
+
+    expect(screen.getByText("Couldn't save — try again.")).toBeTruthy();
+  });
+});
+
+describe("PaydayScheduleRow edit — collapsed state", () => {
+  it("does not show the name/days inputs before Edit is tapped", async () => {
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([salarySchedule]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([]));
+    mockAccountsUseQuery.mockReturnValue(success([]));
+
+    await render(<BudgetScreen />);
+
+    expect(screen.getByText("Salary — paydays on day 15, 31")).toBeTruthy();
+    expect(screen.getByText("Edit")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Name")).toBeNull();
+  });
+
+  it("reveals pre-filled name/days inputs on tap", async () => {
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([salarySchedule]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([]));
+    mockAccountsUseQuery.mockReturnValue(success([]));
+
+    await render(<BudgetScreen />);
+    await fireEvent.press(screen.getByText("Edit"));
+
+    expect(screen.getByPlaceholderText("Name").props["value"]).toBe("Salary");
+    expect(
+      screen.getByPlaceholderText("Payday days of month (e.g. 15, 31)").props["value"],
+    ).toBe("15, 31");
+  });
+});
+
+describe("PaydayScheduleRow edit — cancel", () => {
+  it("reverts uncommitted changes and exits edit mode on Cancel, without calling the mutation", async () => {
+    const mutate = jest.fn();
+    mockUpdatePaydayScheduleUseMutation.mockReturnValue(mockMutationResult({ mutate }));
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([salarySchedule]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([]));
+    mockAccountsUseQuery.mockReturnValue(success([]));
+
+    await render(<BudgetScreen />);
+    await fireEvent.press(screen.getByText("Edit"));
+    await fireEvent.changeText(screen.getByPlaceholderText("Name"), "Renamed");
+    await fireEvent.press(screen.getByText("Cancel"));
+
+    expect(screen.getByText("Salary — paydays on day 15, 31")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Name")).toBeNull();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+});
+
+describe("PaydayScheduleRow edit — save", () => {
+  it("calls updatePaydaySchedule.mutate with the id, trimmed name, and parsed days", async () => {
+    const mutate = jest.fn();
+    mockUpdatePaydayScheduleUseMutation.mockReturnValue(mockMutationResult({ mutate }));
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([salarySchedule]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([]));
+    mockAccountsUseQuery.mockReturnValue(success([]));
+
+    await render(<BudgetScreen />);
+    await fireEvent.press(screen.getByText("Edit"));
+    await fireEvent.changeText(screen.getByPlaceholderText("Name"), "  Renamed  ");
+    await fireEvent.changeText(
+      screen.getByPlaceholderText("Payday days of month (e.g. 15, 31)"),
+      "1, 15",
+    );
+    await fireEvent.press(screen.getByText("Save"));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate).toHaveBeenCalledWith({
+      id: salarySchedule.id,
+      name: "Renamed",
+      paydayDaysOfMonth: [1, 15],
+    });
+  });
+
+  it("shows the inline error message when the mutation errors", async () => {
+    mockUpdatePaydayScheduleUseMutation.mockReturnValue(mockMutationResult({ isError: true }));
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([salarySchedule]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([]));
+    mockAccountsUseQuery.mockReturnValue(success([]));
+
+    await render(<BudgetScreen />);
+    await fireEvent.press(screen.getByText("Edit"));
+
+    expect(screen.getByText("Couldn't save — try again.")).toBeTruthy();
+  });
+});
+
+describe("BudgetLineRow edit — visibility", () => {
+  it("shows an Edit control for a not-yet-applied line", async () => {
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([groceriesLine]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([groceriesFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA]));
+
+    await render(<BudgetScreen />);
+
+    expect(screen.getByText("Edit")).toBeTruthy();
+  });
+
+  it("hides the Edit control for an already-applied line", async () => {
+    const appliedLine = markBudgetLineApplied(groceriesLine);
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([appliedLine]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([groceriesFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA]));
+
+    await render(<BudgetScreen />);
+
+    expect(screen.queryByText("Edit")).toBeNull();
+  });
+});
+
+describe("BudgetLineRow edit — reveal pre-filled fields", () => {
+  it("reveals pre-filled payday date/sub-envelope/description/amount on tap", async () => {
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([groceriesLine]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([groceriesFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA]));
+
+    await render(<BudgetScreen />);
+    await fireEvent.press(screen.getByText("Edit"));
+
+    expect(screen.getByPlaceholderText("Payday date (YYYY-MM-DD)").props["value"]).toBe(
+      "2024-06-15",
+    );
+    expect(screen.getByText(`Sub-envelope: ${groceriesFund.name} ▾`)).toBeTruthy();
+    expect(screen.getByPlaceholderText("Description").props["value"]).toBe(
+      "June groceries allocation",
+    );
+    expect(screen.getByPlaceholderText("Amount").props["value"]).toBe("5000.00");
+  });
+});
+
+describe("BudgetLineRow edit — cancel", () => {
+  it("reverts uncommitted changes and exits edit mode on Cancel, without calling the mutation", async () => {
+    const mutate = jest.fn();
+    mockUpdateBudgetLineUseMutation.mockReturnValue(mockMutationResult({ mutate }));
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([groceriesLine]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([groceriesFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA]));
+
+    await render(<BudgetScreen />);
+    await fireEvent.press(screen.getByText("Edit"));
+    await fireEvent.changeText(screen.getByPlaceholderText("Description"), "Changed");
+    await fireEvent.press(screen.getByText("Cancel"));
+
+    expect(screen.getByText("June groceries allocation")).toBeTruthy();
+    expect(screen.queryByPlaceholderText("Description")).toBeNull();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+});
+
+describe("BudgetLineRow edit — save", () => {
+  it("calls updateBudgetLine.mutate with id, trimmed fields, unchanged subEnvelopeId, and the amount as a formatted decimal string", async () => {
+    const mutate = jest.fn();
+    mockUpdateBudgetLineUseMutation.mockReturnValue(mockMutationResult({ mutate }));
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([groceriesLine]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([groceriesFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA]));
+
+    await render(<BudgetScreen />);
+    await fireEvent.press(screen.getByText("Edit"));
+    await fireEvent.changeText(screen.getByPlaceholderText("Description"), "  Updated groceries  ");
+    await fireEvent.changeText(screen.getByPlaceholderText("Amount"), "600.00");
+    await fireEvent.press(screen.getByText("Save"));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate).toHaveBeenCalledWith({
+      id: groceriesLine.id,
+      paydayDate: "2024-06-15",
+      subEnvelopeId: groceriesFund.id,
+      amount: "600.00",
+      description: "Updated groceries",
+    });
+  });
+
+  it("shows the inline error message when the mutation errors", async () => {
+    mockUpdateBudgetLineUseMutation.mockReturnValue(mockMutationResult({ isError: true }));
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([groceriesLine]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([groceriesFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA]));
+
+    await render(<BudgetScreen />);
+    await fireEvent.press(screen.getByText("Edit"));
 
     expect(screen.getByText("Couldn't save — try again.")).toBeTruthy();
   });
