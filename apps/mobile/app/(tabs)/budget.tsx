@@ -188,9 +188,27 @@ function usePaydayScheduleDelete(schedule: PaydaySchedule) {
   };
 }
 
+/** `PaydayScheduleRow`'s "Set primary" state and `setPaydaySchedulePrimary` mutation —
+ * split into its own hook, mirroring `usePaydayScheduleDelete` above. The server
+ * mutation itself handles unmarking whichever schedule was previously primary
+ * (Increment 75), so this hook only ever needs to fire one `mutate` call. */
+function usePaydaySchedulePrimary(schedule: PaydaySchedule) {
+  const utils = trpc.useUtils();
+  const setPaydaySchedulePrimary = trpc.budget.setPaydaySchedulePrimary.useMutation({
+    onSuccess: () => void utils.budget.paydaySchedules.invalidate(),
+  });
+
+  return {
+    isPending: setPaydaySchedulePrimary.isPending,
+    isError: setPaydaySchedulePrimary.isError,
+    setPrimary: () => setPaydaySchedulePrimary.mutate({ id: schedule.id }),
+  };
+}
+
 function PaydayScheduleRow({ schedule }: { schedule: PaydaySchedule }) {
   const edit = usePaydayScheduleEdit(schedule);
   const del = usePaydayScheduleDelete(schedule);
+  const primary = usePaydaySchedulePrimary(schedule);
 
   if (edit.isEditing) {
     return (
@@ -221,14 +239,16 @@ function PaydayScheduleRow({ schedule }: { schedule: PaydaySchedule }) {
       onStartDelete={del.startDelete}
       onCancelDelete={del.cancelDelete}
       onConfirmDelete={del.confirmDelete}
+      isPrimaryPending={primary.isPending}
+      isPrimaryError={primary.isError}
+      onSetPrimary={primary.setPrimary}
     />
   );
 }
 
-/** `PaydayScheduleRow`'s non-editing display: name/days plus Edit/Delete controls and
- * an inline delete confirmation — split out to keep `PaydayScheduleRow` under the
- * line/complexity caps, mirroring `index.tsx`'s `TransactionRowDisplay`. */
-function PaydayScheduleRowDisplay(props: {
+/** Props for `PaydayScheduleRowDisplay`, lifted out to a named interface so the
+ * function body itself stays under the length cap. */
+interface PaydayScheduleRowDisplayProps {
   schedule: PaydaySchedule;
   isConfirmingDelete: boolean;
   isDeletePending: boolean;
@@ -237,16 +257,38 @@ function PaydayScheduleRowDisplay(props: {
   onStartDelete: () => void;
   onCancelDelete: () => void;
   onConfirmDelete: () => void;
-}) {
+  isPrimaryPending: boolean;
+  isPrimaryError: boolean;
+  onSetPrimary: () => void;
+}
+
+/** `PaydayScheduleRow`'s non-editing display: name/days (plus a "(primary)" suffix
+ * when applicable) and Edit/Delete/"Set primary" controls with an inline delete
+ * confirmation — split out to keep `PaydayScheduleRow` under the line/complexity
+ * caps, mirroring `index.tsx`'s `TransactionRowDisplay`. "Set primary" is hidden
+ * once already primary, the same "no button once true" pattern
+ * `BudgetLineApplyControls`'s `isApplied` label already uses. */
+function PaydayScheduleRowDisplay(props: PaydayScheduleRowDisplayProps) {
   const { schedule } = props;
-  const rowActionsDisabled = props.isConfirmingDelete || props.isDeletePending;
+  const rowActionsDisabled =
+    props.isConfirmingDelete || props.isDeletePending || props.isPrimaryPending;
   return (
     <View>
       <View style={styles.scheduleRow}>
         <Text style={styles.scheduleText}>
           {schedule.name} — paydays on day {schedule.paydayDaysOfMonth.join(", ")}
+          {schedule.isPrimary ? " (primary)" : ""}
         </Text>
         <View style={styles.rowButtons}>
+          {!schedule.isPrimary && (
+            <Pressable
+              style={styles.editButton}
+              disabled={rowActionsDisabled}
+              onPress={props.onSetPrimary}
+            >
+              <Text style={styles.editButtonText}>Set primary</Text>
+            </Pressable>
+          )}
           <Pressable style={styles.editButton} disabled={rowActionsDisabled} onPress={props.onEdit}>
             <Text style={styles.editButtonText}>Edit</Text>
           </Pressable>
@@ -259,6 +301,7 @@ function PaydayScheduleRowDisplay(props: {
           </Pressable>
         </View>
       </View>
+      {props.isPrimaryError && <Text style={styles.error}>Couldn&apos;t update — try again.</Text>}
       {props.isDeleteError && <Text style={styles.error}>Couldn&apos;t delete — try again.</Text>}
       {props.isConfirmingDelete && (
         <DeleteConfirm

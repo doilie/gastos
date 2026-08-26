@@ -1,0 +1,1 @@
+ALTER TABLE "payday_schedules" ADD COLUMN "is_primary" boolean NOT NULL;

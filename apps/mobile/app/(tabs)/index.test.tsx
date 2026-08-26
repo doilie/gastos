@@ -60,6 +60,7 @@ import {
   dailySpendableAllowance,
   formatCents,
   ledgerDateFromString,
+  markPaydaySchedulePrimary,
   paydayScheduleIdFromString,
   subEnvelopeIdFromString,
   transactionIdFromString,
@@ -723,6 +724,29 @@ describe("TodayScreen daily allowance display (pinned system clock)", () => {
     const expectedDailyAllowance = dailySpendableAllowance(
       balance,
       paydayScheduleFixture,
+      ledgerDateFromString(PINNED_TODAY),
+    );
+    expect(getByText(`≈ ${formatCents(expectedDailyAllowance)} / day`)).toBeTruthy();
+  });
+
+  it("prefers the schedule marked isPrimary over the first one in the list", async () => {
+    const balance = centsFromInt(10000);
+    mockUseQuery.mockReturnValue(success(balance));
+    // Deliberately not primary and listed FIRST — the daily allowance must come from
+    // `primarySchedule` below instead, proving `isPrimary` wins over list position.
+    const nonPrimaryFirstSchedule = createPaydaySchedule({
+      id: paydayScheduleIdFromString("payday-schedule-other"),
+      name: "Other",
+      paydayDaysOfMonth: [10],
+    });
+    const primarySchedule = markPaydaySchedulePrimary(paydayScheduleFixture);
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([nonPrimaryFirstSchedule, primarySchedule]));
+
+    const { getByText } = await render(<TodayScreen />);
+
+    const expectedDailyAllowance = dailySpendableAllowance(
+      balance,
+      primarySchedule,
       ledgerDateFromString(PINNED_TODAY),
     );
     expect(getByText(`≈ ${formatCents(expectedDailyAllowance)} / day`)).toBeTruthy();

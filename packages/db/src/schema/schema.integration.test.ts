@@ -104,7 +104,7 @@ async function insertCreditCard(db: Db): Promise<string> {
 
 async function insertPaydaySchedule(db: Db): Promise<string> {
   const id = randomUUID();
-  const row = { id, name: "Biweekly", paydayDaysOfMonth: [1, 15] };
+  const row = { id, name: "Biweekly", paydayDaysOfMonth: [1, 15], isPrimary: false };
   await db.insert(paydaySchedules).values(row);
   const [found] = await db.select().from(paydaySchedules).where(eq(paydaySchedules.id, id));
   expect(found).toEqual(row);

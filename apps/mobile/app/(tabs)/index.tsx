@@ -80,9 +80,15 @@ export default function TodayScreen() {
     );
   }
 
+  // Prefer the schedule explicitly marked primary (via the Budget tab's "Set primary"
+  // control, Increment 75) over just whichever schedule happens to be first in the
+  // list — falling back to `data[0]` only when none is marked yet (e.g. right after
+  // creating a first schedule with no explicit primary designation).
+  const primarySchedule =
+    paydaySchedules.data.find((schedule) => schedule.isPrimary) ?? paydaySchedules.data[0];
   const dailyAllowance = dailySpendableAllowance(
     spendableBalance.data,
-    paydaySchedules.data[0],
+    primarySchedule,
     ledgerDateFromString(todayLedgerDate()),
   );
 

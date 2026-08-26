@@ -404,6 +404,7 @@ interface CreatedPaydaySchedule {
   id: string;
   name: string;
   paydayDaysOfMonth: number[];
+  isPrimary: boolean;
 }
 
 describe("budget.createPaydaySchedule — success", () => {
@@ -418,6 +419,7 @@ describe("budget.createPaydaySchedule — success", () => {
     expect(data.id.length).toBeGreaterThan(0);
     expect(data.name).toBe("Monthly");
     expect(data.paydayDaysOfMonth).toEqual([1]);
+    expect(data.isPrimary).toBe(false);
     await app.close();
   });
 
@@ -612,6 +614,74 @@ describe("budget.updatePaydaySchedule — validation errors", () => {
       name: "   ",
     });
     expect(statusCode).toBeGreaterThanOrEqual(400);
+    await app.close();
+  });
+});
+
+describe("budget.setPaydaySchedulePrimary — success", () => {
+  it("marks the target schedule isPrimary: true", async () => {
+    const app = buildServer();
+    const created = await mutateBudget<CreatedPaydaySchedule>(app, "createPaydaySchedule", {
+      name: "Freelance",
+      paydayDaysOfMonth: [1],
+    });
+
+    const updated = await mutateBudget<CreatedPaydaySchedule>(app, "setPaydaySchedulePrimary", {
+      id: created.id,
+    });
+
+    expect(updated.id).toBe(created.id);
+    expect(updated.isPrimary).toBe(true);
+    await app.close();
+  });
+
+  it("unmarks whichever schedule previously held isPrimary, so only the newly-set one stays true", async () => {
+    const app = buildServer();
+    const first = await mutateBudget<CreatedPaydaySchedule>(app, "createPaydaySchedule", {
+      name: "First",
+      paydayDaysOfMonth: [1],
+    });
+    const second = await mutateBudget<CreatedPaydaySchedule>(app, "createPaydaySchedule", {
+      name: "Second",
+      paydayDaysOfMonth: [15],
+    });
+    await mutateBudget(app, "setPaydaySchedulePrimary", { id: first.id });
+
+    await mutateBudget(app, "setPaydaySchedulePrimary", { id: second.id });
+
+    const schedules = await queryBudget<CreatedPaydaySchedule[]>(app, "paydaySchedules");
+    expect(schedules.find((schedule) => schedule.id === first.id)?.isPrimary).toBe(false);
+    expect(schedules.find((schedule) => schedule.id === second.id)?.isPrimary).toBe(true);
+    await app.close();
+  });
+
+  it("is a no-op (stays true, no error) when re-setting the already-primary schedule", async () => {
+    const app = buildServer();
+    const created = await mutateBudget<CreatedPaydaySchedule>(app, "createPaydaySchedule", {
+      name: "Already primary",
+      paydayDaysOfMonth: [1],
+    });
+    await mutateBudget(app, "setPaydaySchedulePrimary", { id: created.id });
+
+    const updated = await mutateBudget<CreatedPaydaySchedule>(app, "setPaydaySchedulePrimary", {
+      id: created.id,
+    });
+
+    expect(updated.isPrimary).toBe(true);
+    await app.close();
+  });
+});
+
+describe("budget.setPaydaySchedulePrimary — validation errors", () => {
+  it("returns NOT_FOUND (404) for a well-formed but nonexistent id", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateBudgetExpectingError(
+      app,
+      "setPaydaySchedulePrimary",
+      { id: "schedule-does-not-exist" },
+    );
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
     await app.close();
   });
 });

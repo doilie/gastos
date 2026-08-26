@@ -24,6 +24,9 @@ jest.mock("../../lib/trpc", () => ({
       updateBudgetLine: {
         useMutation: jest.fn(),
       },
+      setPaydaySchedulePrimary: {
+        useMutation: jest.fn(),
+      },
       deletePaydaySchedule: {
         useMutation: jest.fn(),
       },
@@ -61,6 +64,7 @@ import {
   formatCents,
   ledgerDateFromString,
   markBudgetLineApplied,
+  markPaydaySchedulePrimary,
   paydaysInMonth,
   paydayScheduleIdFromString,
   subEnvelopeIdFromString,
@@ -107,6 +111,8 @@ const mockCreateBudgetLineUseMutation = trpc.budget.createBudgetLine
 const mockUpdatePaydayScheduleUseMutation = trpc.budget.updatePaydaySchedule
   .useMutation as unknown as jest.Mock<MockMutationResult>;
 const mockUpdateBudgetLineUseMutation = trpc.budget.updateBudgetLine
+  .useMutation as unknown as jest.Mock<MockMutationResult>;
+const mockSetPaydaySchedulePrimaryUseMutation = trpc.budget.setPaydaySchedulePrimary
   .useMutation as unknown as jest.Mock<MockMutationResult>;
 const mockDeletePaydayScheduleUseMutation = trpc.budget.deletePaydaySchedule
   .useMutation as unknown as jest.Mock<MockMutationResult>;
@@ -158,6 +164,7 @@ beforeEach(() => {
   mockCreateBudgetLineUseMutation.mockReturnValue(mockMutationResult());
   mockUpdatePaydayScheduleUseMutation.mockReturnValue(mockMutationResult());
   mockUpdateBudgetLineUseMutation.mockReturnValue(mockMutationResult());
+  mockSetPaydaySchedulePrimaryUseMutation.mockReturnValue(mockMutationResult());
   mockDeletePaydayScheduleUseMutation.mockReturnValue(mockMutationResult());
   mockDeleteBudgetLineUseMutation.mockReturnValue(mockMutationResult());
   mockUseUtils.mockReturnValue({
@@ -182,6 +189,7 @@ afterEach(() => {
   mockCreateBudgetLineUseMutation.mockReset();
   mockUpdatePaydayScheduleUseMutation.mockReset();
   mockUpdateBudgetLineUseMutation.mockReset();
+  mockSetPaydaySchedulePrimaryUseMutation.mockReset();
   mockDeletePaydayScheduleUseMutation.mockReset();
   mockDeleteBudgetLineUseMutation.mockReset();
   mockUseUtils.mockReset();
@@ -1251,5 +1259,61 @@ describe("BudgetLineRow delete flow", () => {
     await render(<BudgetScreen />);
 
     expect(screen.getByText("Couldn't delete — try again.")).toBeTruthy();
+  });
+});
+
+describe("PaydayScheduleRow set-primary control visibility", () => {
+  it("shows a 'Set primary' control and no '(primary)' suffix for a non-primary schedule", async () => {
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([salarySchedule]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([]));
+    mockAccountsUseQuery.mockReturnValue(success([]));
+
+    await render(<BudgetScreen />);
+
+    expect(screen.getByText("Set primary")).toBeTruthy();
+    expect(screen.getByText("Salary — paydays on day 15, 31")).toBeTruthy();
+  });
+
+  it("hides the 'Set primary' control and adds a '(primary)' suffix for the primary schedule", async () => {
+    const primarySchedule = markPaydaySchedulePrimary(salarySchedule);
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([primarySchedule]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([]));
+    mockAccountsUseQuery.mockReturnValue(success([]));
+
+    await render(<BudgetScreen />);
+
+    expect(screen.queryByText("Set primary")).toBeNull();
+    expect(screen.getByText("Salary — paydays on day 15, 31 (primary)")).toBeTruthy();
+  });
+});
+
+describe("PaydayScheduleRow set-primary flow", () => {
+  it("tapping 'Set primary' calls setPaydaySchedulePrimary.mutate with the schedule's id", async () => {
+    const mutate = jest.fn();
+    mockSetPaydaySchedulePrimaryUseMutation.mockReturnValue(mockMutationResult({ mutate }));
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([salarySchedule]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([]));
+    mockAccountsUseQuery.mockReturnValue(success([]));
+
+    await render(<BudgetScreen />);
+    await fireEvent.press(screen.getByText("Set primary"));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate).toHaveBeenCalledWith({ id: salarySchedule.id });
+  });
+
+  it("shows the generic error message when the mutation errors", async () => {
+    mockSetPaydaySchedulePrimaryUseMutation.mockReturnValue(mockMutationResult({ isError: true }));
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([salarySchedule]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([]));
+    mockAccountsUseQuery.mockReturnValue(success([]));
+
+    await render(<BudgetScreen />);
+
+    expect(screen.getByText("Couldn't update — try again.")).toBeTruthy();
   });
 });

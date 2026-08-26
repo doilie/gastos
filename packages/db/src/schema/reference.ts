@@ -87,4 +87,5 @@ export const paydaySchedules = pgTable("payday_schedules", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   paydayDaysOfMonth: integer("payday_days_of_month").array().notNull(),
+  isPrimary: boolean("is_primary").notNull(),
 });

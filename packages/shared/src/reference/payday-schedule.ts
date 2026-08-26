@@ -39,6 +39,13 @@ export interface PaydaySchedule {
    * no duplicates. No non-banking-day shift rule is modeled (HLD open
    * item, unresolved) — these are raw calendar days. */
   readonly paydayDaysOfMonth: readonly number[];
+  /** Whether this is the one schedule consumers should treat as "the"
+   * schedule when they need exactly one (e.g. the Today tab's daily-spendable
+   * calc) — distinct schedules can otherwise coexist with no inherent
+   * ordering. At most one schedule is expected to have this `true` at a
+   * time; nothing in this module enforces that invariant itself (see
+   * `markPaydaySchedulePrimary`'s doc comment). */
+  readonly isPrimary: boolean;
 }
 
 function assertNonEmptyName(name: string, context: string): string {
@@ -83,13 +90,16 @@ export function createPaydaySchedule(input: {
     id: input.id,
     name: assertNonEmptyName(input.name, "createPaydaySchedule"),
     paydayDaysOfMonth: assertValidPaydayDaysOfMonth(input.paydayDaysOfMonth, "createPaydaySchedule"),
+    isPrimary: false,
   };
 }
 
 /**
  * Applies a partial `name`/`paydayDaysOfMonth` update to `schedule`,
  * validating each the same way `createPaydaySchedule` does when provided.
- * `id` is always carried over unchanged.
+ * `id` and `isPrimary` are always carried over unchanged — `isPrimary` only
+ * ever changes via `markPaydaySchedulePrimary`/`unmarkPaydaySchedulePrimary`,
+ * mirroring how `updateAccount` never touches `isArchived`.
  */
 export function updatePaydaySchedule(
   schedule: PaydaySchedule,
@@ -109,6 +119,24 @@ export function updatePaydaySchedule(
           ),
         }),
   };
+}
+
+/**
+ * Marks `schedule` as primary (`isPrimary: true`). Touches nothing else on
+ * `schedule`. This function alone does not enforce "at most one primary
+ * schedule" — a caller managing a whole list of schedules (e.g. the
+ * `budget.setPaydaySchedulePrimary` router mutation) is responsible for also
+ * calling `unmarkPaydaySchedulePrimary` on whichever schedule was previously
+ * primary, if any.
+ */
+export function markPaydaySchedulePrimary(schedule: PaydaySchedule): PaydaySchedule {
+  return { ...schedule, isPrimary: true };
+}
+
+/** Reverses `markPaydaySchedulePrimary` (`isPrimary: false`). Touches nothing
+ * else on `schedule`. */
+export function unmarkPaydaySchedulePrimary(schedule: PaydaySchedule): PaydaySchedule {
+  return { ...schedule, isPrimary: false };
 }
 
 /** Number of days in `month` (1-indexed, 1 = January) of `year`. */

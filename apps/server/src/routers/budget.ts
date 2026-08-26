@@ -13,6 +13,7 @@ import {
   createPaydaySchedule as createPaydayScheduleInDomain,
   ledgerDateFromString,
   markBudgetLineApplied,
+  markPaydaySchedulePrimary,
   parseCents,
   type PaydaySchedule,
   paydayScheduleIdFromString,
@@ -20,6 +21,7 @@ import {
   type SubEnvelopeId,
   subEnvelopeIdFromString,
   transactionIdFromString,
+  unmarkPaydaySchedulePrimary,
   updateBudgetLine as updateBudgetLineInDomain,
   updatePaydaySchedule as updatePaydayScheduleInDomain,
 } from "@gastos/shared";
@@ -225,7 +227,10 @@ function buildApplyResolver(
  * guarded hard delete), the same reasoning `ledger.deleteTransaction` already established;
  * deleting an already-applied `BudgetLine` leaves its already-posted `Transaction`
  * untouched (there is no `Transaction.budgetLineId` column either), so unlike update,
- * delete can never desync anything. `applyBudgetLine` applies a single seeded `BudgetLine` into the ledger
+ * delete can never desync anything. `setPaydaySchedulePrimary` (Increment 75) marks one
+ * `PaydaySchedule` as `isPrimary` and unmarks whichever schedule previously held it, if any —
+ * this is what lets `index.tsx`'s Today tab pick a specific, intentional schedule for its
+ * daily-spendable calc instead of implicitly using `paydaySchedules.data[0]`. `applyBudgetLine` applies a single seeded `BudgetLine` into the ledger
  * (mirroring `ledger.addTransaction`'s validation style), and
  * `applyBudgetLines` applies a caller-chosen subset of every seeded
  * `BudgetLine` in one call — mirroring the shared `applyBudgetLines`/
@@ -309,6 +314,27 @@ export const budgetRouter = router({
           ? {}
           : { paydayDaysOfMonth: input.paydayDaysOfMonth }),
       });
+      await replacePaydaySchedule(updated);
+      return updated;
+    }),
+  setPaydaySchedulePrimary: publicProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ input }) => {
+      const id = paydayScheduleIdFromString(input.id);
+      const schedules = await getPaydaySchedules();
+      const schedule = schedules.find((candidate) => candidate.id === id);
+      if (schedule === undefined) {
+        throw new TRPCError({ code: "NOT_FOUND", message: `Payday schedule "${id}" not found` });
+      }
+
+      const previousPrimary = schedules.find(
+        (candidate) => candidate.isPrimary && candidate.id !== id,
+      );
+      if (previousPrimary !== undefined) {
+        await replacePaydaySchedule(unmarkPaydaySchedulePrimary(previousPrimary));
+      }
+
+      const updated = markPaydaySchedulePrimary(schedule);
       await replacePaydaySchedule(updated);
       return updated;
     }),

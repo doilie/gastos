@@ -205,6 +205,7 @@ async function seedPaydaySchedules(targetDb: Db): Promise<void> {
         id: paydayScheduleIdFromString("payday-schedule-default"),
         name: "Semi-monthly",
         paydayDaysOfMonth: [15, 31],
+        isPrimary: true,
       },
     ])
     .onConflictDoNothing();

@@ -4,8 +4,10 @@ import { describe, expect, it } from "vitest";
 import { ledgerDateFromString } from "../ledger-core/transaction";
 import {
   createPaydaySchedule,
+  markPaydaySchedulePrimary,
   paydayScheduleIdFromString,
   paydaysInMonth,
+  unmarkPaydaySchedulePrimary,
   updatePaydaySchedule,
 } from "./payday-schedule";
 
@@ -45,6 +47,7 @@ describe("createPaydaySchedule", () => {
       id,
       name: "Semi-monthly",
       paydayDaysOfMonth: [15, 31],
+      isPrimary: false,
     });
   });
 
@@ -107,7 +110,7 @@ describe("updatePaydaySchedule", () => {
 
   it("applies both fields at once when both are given", () => {
     const updated = updatePaydaySchedule(original, { name: "Monthly", paydayDaysOfMonth: [1] });
-    expect(updated).toEqual({ id, name: "Monthly", paydayDaysOfMonth: [1] });
+    expect(updated).toEqual({ id, name: "Monthly", paydayDaysOfMonth: [1], isPrimary: false });
   });
 
   it("never touches id", () => {
@@ -141,6 +144,39 @@ describe("updatePaydaySchedule", () => {
 
   it("throws when paydayDaysOfMonth contains a duplicate value", () => {
     expect(() => updatePaydaySchedule(original, { paydayDaysOfMonth: [15, 15] })).toThrow();
+  });
+
+  it("never touches isPrimary", () => {
+    const primarySchedule = markPaydaySchedulePrimary(original);
+    const updated = updatePaydaySchedule(primarySchedule, { name: "Renamed" });
+    expect(updated.isPrimary).toBe(true);
+  });
+});
+
+describe("markPaydaySchedulePrimary / unmarkPaydaySchedulePrimary", () => {
+  const id = paydayScheduleIdFromString("schedule-1");
+  const schedule = createPaydaySchedule({ id, name: "Semi-monthly", paydayDaysOfMonth: [15, 31] });
+
+  it("markPaydaySchedulePrimary sets isPrimary to true, leaving every other field unchanged", () => {
+    const marked = markPaydaySchedulePrimary(schedule);
+    expect(marked).toEqual({ ...schedule, isPrimary: true });
+  });
+
+  it("markPaydaySchedulePrimary is idempotent", () => {
+    const marked = markPaydaySchedulePrimary(schedule);
+    const markedAgain = markPaydaySchedulePrimary(marked);
+    expect(markedAgain).toEqual(marked);
+  });
+
+  it("unmarkPaydaySchedulePrimary reverses markPaydaySchedulePrimary", () => {
+    const marked = markPaydaySchedulePrimary(schedule);
+    const unmarked = unmarkPaydaySchedulePrimary(marked);
+    expect(unmarked).toEqual(schedule);
+  });
+
+  it("unmarkPaydaySchedulePrimary is idempotent", () => {
+    const unmarked = unmarkPaydaySchedulePrimary(schedule);
+    expect(unmarked).toEqual(schedule);
   });
 });
 

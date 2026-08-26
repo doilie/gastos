@@ -68,6 +68,7 @@ function toPaydaySchedule(row: typeof paydaySchedules.$inferSelect): PaydaySched
     id: paydayScheduleIdFromString(row.id),
     name: row.name,
     paydayDaysOfMonth: row.paydayDaysOfMonth,
+    isPrimary: row.isPrimary,
   };
 }
 
@@ -81,13 +82,18 @@ async function addPaydayScheduleImpl(db: Db, schedule: PaydaySchedule): Promise<
     id: schedule.id,
     name: schedule.name,
     paydayDaysOfMonth: [...schedule.paydayDaysOfMonth],
+    isPrimary: schedule.isPrimary,
   });
 }
 
 async function replacePaydayScheduleImpl(db: Db, schedule: PaydaySchedule): Promise<void> {
   await db
     .update(paydaySchedules)
-    .set({ name: schedule.name, paydayDaysOfMonth: [...schedule.paydayDaysOfMonth] })
+    .set({
+      name: schedule.name,
+      paydayDaysOfMonth: [...schedule.paydayDaysOfMonth],
+      isPrimary: schedule.isPrimary,
+    })
     .where(eq(paydaySchedules.id, schedule.id));
 }
 
