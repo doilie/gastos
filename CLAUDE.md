@@ -832,6 +832,25 @@ Create, Read, Update, and Delete are now live, both server and UI, for both `Pay
 `BudgetLine`. Verified via the mobile Jest/RNTL suite (10 new tests) and a production build; not
 manually driven in a live browser in this session.
 
+Increment 74 begins a "payday schedule selection" thread, closing a real gap: distinct
+`PaydaySchedule`s previously had no way to be individually applied to anything — the "+ Add budget
+line" form's payday field was a free-typed `TextInput`, disconnected from any actual schedule (a
+`BudgetLine`'s `paydayDate` could be any string, not necessarily one of a schedule's real computed
+paydays). `AddBudgetLineFields` now has a two-step payday picker instead: pick a named
+`PaydaySchedule` (`PaydayScheduleFieldControl`), then pick one of ITS actual computed dates for
+"this month + next month" (`PaydayDateFieldControl`, via the already-existing `paydaysInMonth`) —
+not an arbitrary typed date. `usePaydayPickerState`/`candidatePaydayDates`/`currentYearMonth`/
+`nextYearMonth` are the new supporting pure helpers/hook. Per a scope decision made with the user:
+this is UI convenience only — `BudgetLine` still doesn't persist which schedule it came from (no
+schema change), so editing an existing line (`BudgetLineEditFields`, split off from
+`AddBudgetLineFields` for exactly this reason) keeps the old free-text field, since the picker has
+no stored schedule id to pre-fill itself from. Tests needing a specific computed date pin the
+system clock (`jest.setSystemTime`), mirroring `index.test.tsx`'s existing `PINNED_TODAY` pattern,
+and assert against the real `paydaysInMonth` output rather than hardcoded dates. This thread's
+second half — replacing `index.tsx`'s `paydaySchedules.data[0]` (today's Today-tab daily-spendable
+calc always uses whichever schedule happens to be first) with an explicit "primary schedule"
+designation — is a separate, following increment.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
