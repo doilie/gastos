@@ -35,9 +35,11 @@ export const {
   getPaydaySchedules,
   addPaydaySchedule,
   replacePaydaySchedule,
+  deletePaydaySchedule,
   getCardPurchases,
   addCardPurchase,
   getBudgetLines,
   addBudgetLine,
   replaceBudgetLine,
+  deleteBudgetLine,
 } = domainStore;

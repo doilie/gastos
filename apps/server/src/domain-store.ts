@@ -12,6 +12,7 @@ import { budgetLines, cardPurchases, creditCards, paydaySchedules, type Db } fro
 import {
   accountIdFromString,
   type BudgetLine,
+  type BudgetLineId,
   budgetLineIdFromString,
   type CardPurchase,
   cardPurchaseIdFromString,
@@ -25,6 +26,7 @@ import {
   fundingSourceFromEnvelope,
   ledgerDateFromString,
   type PaydaySchedule,
+  type PaydayScheduleId,
   paydayScheduleIdFromString,
   subEnvelopeIdFromString,
   UNFUNDED_SOURCE,
@@ -37,11 +39,13 @@ export interface DomainStore {
   getPaydaySchedules(): Promise<readonly PaydaySchedule[]>;
   addPaydaySchedule(schedule: PaydaySchedule): Promise<void>;
   replacePaydaySchedule(schedule: PaydaySchedule): Promise<void>;
+  deletePaydaySchedule(id: PaydayScheduleId): Promise<void>;
   getCardPurchases(): Promise<readonly CardPurchase[]>;
   addCardPurchase(purchase: CardPurchase): Promise<void>;
   getBudgetLines(): Promise<readonly BudgetLine[]>;
   addBudgetLine(line: BudgetLine): Promise<void>;
   replaceBudgetLine(line: BudgetLine): Promise<void>;
+  deleteBudgetLine(id: BudgetLineId): Promise<void>;
 }
 
 function toCreditCard(row: typeof creditCards.$inferSelect): CreditCard {
@@ -85,6 +89,10 @@ async function replacePaydayScheduleImpl(db: Db, schedule: PaydaySchedule): Prom
     .update(paydaySchedules)
     .set({ name: schedule.name, paydayDaysOfMonth: [...schedule.paydayDaysOfMonth] })
     .where(eq(paydaySchedules.id, schedule.id));
+}
+
+async function deletePaydayScheduleImpl(db: Db, id: PaydayScheduleId): Promise<void> {
+  await db.delete(paydaySchedules).where(eq(paydaySchedules.id, id));
 }
 
 /**
@@ -218,6 +226,10 @@ async function replaceBudgetLineImpl(db: Db, line: BudgetLine): Promise<void> {
     .where(eq(budgetLines.id, line.id));
 }
 
+async function deleteBudgetLineImpl(db: Db, id: BudgetLineId): Promise<void> {
+  await db.delete(budgetLines).where(eq(budgetLines.id, id));
+}
+
 /**
  * Builds a `DomainStore` backed by `db` — a real Postgres connection for
  * production use (see `apps/server/src/db.ts`), or any other `Db` instance
@@ -229,10 +241,12 @@ export function createDomainStore(db: Db): DomainStore {
     getPaydaySchedules: () => getPaydaySchedulesImpl(db),
     addPaydaySchedule: (schedule) => addPaydayScheduleImpl(db, schedule),
     replacePaydaySchedule: (schedule) => replacePaydayScheduleImpl(db, schedule),
+    deletePaydaySchedule: (id) => deletePaydayScheduleImpl(db, id),
     getCardPurchases: () => getCardPurchasesImpl(db),
     addCardPurchase: (purchase) => addCardPurchaseImpl(db, purchase),
     getBudgetLines: () => getBudgetLinesImpl(db),
     addBudgetLine: (line) => addBudgetLineImpl(db, line),
     replaceBudgetLine: (line) => replaceBudgetLineImpl(db, line),
+    deleteBudgetLine: (id) => deleteBudgetLineImpl(db, id),
   };
 }

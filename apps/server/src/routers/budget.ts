@@ -32,6 +32,8 @@ import {
   addBudgetLine,
   addPaydaySchedule,
   addTransaction,
+  deleteBudgetLine,
+  deletePaydaySchedule,
   getAccounts,
   getBudgetLines,
   getPaydaySchedules,
@@ -210,14 +212,20 @@ function buildApplyResolver(
 
 /**
  * Read-only Budget queries (PaydaySchedule/BudgetLine) plus `createPaydaySchedule`/
- * `createBudgetLine` and `updatePaydaySchedule`/`updateBudgetLine` (the "Budget CRUD"
- * thread's Create+Update — Archive/Delete for both entities is a separate, later,
- * not-yet-scoped increment, same sequencing the "More tab CRUD"/"Envelope CRUD" threads
- * followed) plus two apply mutations: `updateBudgetLine` rejects (unwrapped `Error`,
- * surfacing as 500) updating an already-applied line — once a line has been turned
- * into a real ledger `Transaction`, editing the allocation it describes would silently
- * desync the two records, the same invariant `applyBudgetLine` itself already protects
- * against double-posting. `applyBudgetLine` applies a single seeded `BudgetLine` into the ledger
+ * `createBudgetLine`, `updatePaydaySchedule`/`updateBudgetLine`, and
+ * `deletePaydaySchedule`/`deleteBudgetLine` (the full "Budget CRUD" thread) plus two apply
+ * mutations. `updateBudgetLine` rejects (unwrapped `Error`, surfacing as 500) updating an
+ * already-applied line — once a line has been turned into a real ledger `Transaction`,
+ * editing the allocation it describes would silently desync the two records, the same
+ * invariant `applyBudgetLine` itself already protects against double-posting.
+ * `deletePaydaySchedule`/`deleteBudgetLine` are, by contrast, plain hard deletes with no
+ * referential-integrity check and no `isApplied` guard — nothing else in this schema
+ * references either `PaydayScheduleId` or `BudgetLineId` by foreign key (unlike
+ * `Account`/`SubEnvelope`'s archive-based "delete," or `Category`/`EnvelopeGroup`'s
+ * guarded hard delete), the same reasoning `ledger.deleteTransaction` already established;
+ * deleting an already-applied `BudgetLine` leaves its already-posted `Transaction`
+ * untouched (there is no `Transaction.budgetLineId` column either), so unlike update,
+ * delete can never desync anything. `applyBudgetLine` applies a single seeded `BudgetLine` into the ledger
  * (mirroring `ledger.addTransaction`'s validation style), and
  * `applyBudgetLines` applies a caller-chosen subset of every seeded
  * `BudgetLine` in one call — mirroring the shared `applyBudgetLines`/
@@ -328,6 +336,30 @@ export const budgetRouter = router({
       const updated = updateBudgetLineInDomain(line, resolveBudgetLineUpdates(input, subEnvelopes));
       await replaceBudgetLine(updated);
       return updated;
+    }),
+  deletePaydaySchedule: publicProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ input }) => {
+      const id = paydayScheduleIdFromString(input.id);
+      const existing = (await getPaydaySchedules()).find((schedule) => schedule.id === id);
+      if (existing === undefined) {
+        throw new TRPCError({ code: "NOT_FOUND", message: `Payday schedule "${id}" not found` });
+      }
+
+      await deletePaydaySchedule(id);
+      return { id };
+    }),
+  deleteBudgetLine: publicProcedure
+    .input(z.object({ id: z.string() }))
+    .mutation(async ({ input }) => {
+      const id = budgetLineIdFromString(input.id);
+      const existing = (await getBudgetLines()).find((line) => line.id === id);
+      if (existing === undefined) {
+        throw new TRPCError({ code: "NOT_FOUND", message: `BudgetLine "${id}" not found` });
+      }
+
+      await deleteBudgetLine(id);
+      return { id };
     }),
   applyBudgetLine: publicProcedure
     .input(z.object({ budgetLineId: z.string(), accountId: z.string() }))

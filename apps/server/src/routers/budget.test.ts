@@ -751,3 +751,129 @@ describe("budget.updateBudgetLine — already-applied rejection", () => {
     await app.close();
   });
 });
+
+// The delete-mutation tests below each create their own fresh
+// PaydaySchedule/BudgetLine fixture too, for the same reason the create/
+// update tests above do — a delete target must never be one of the seeded
+// fixtures the apply-lifecycle tests above depend on.
+
+describe("budget.deletePaydaySchedule — success", () => {
+  it("deletes a payday schedule, no longer visible in a fresh budget.paydaySchedules request", async () => {
+    const app = buildServer();
+    const created = await mutateBudget<CreatedPaydaySchedule>(app, "createPaydaySchedule", {
+      name: "To be deleted",
+      paydayDaysOfMonth: [1],
+    });
+
+    const result = await mutateBudget<{ id: string }>(app, "deletePaydaySchedule", {
+      id: created.id,
+    });
+    expect(result.id).toBe(created.id);
+
+    const schedules = await queryBudget<CreatedPaydaySchedule[]>(app, "paydaySchedules");
+    expect(schedules.find((schedule) => schedule.id === created.id)).toBeUndefined();
+    await app.close();
+  });
+});
+
+describe("budget.deletePaydaySchedule — validation errors", () => {
+  it("returns NOT_FOUND (404) for a well-formed but nonexistent id", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateBudgetExpectingError(app, "deletePaydaySchedule", {
+      id: "schedule-does-not-exist",
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("returns NOT_FOUND (404) when deleting the same id a second time", async () => {
+    const app = buildServer();
+    const created = await mutateBudget<CreatedPaydaySchedule>(app, "createPaydaySchedule", {
+      name: "Delete twice",
+      paydayDaysOfMonth: [1],
+    });
+    await mutateBudget(app, "deletePaydaySchedule", { id: created.id });
+
+    const { statusCode, error } = await mutateBudgetExpectingError(app, "deletePaydaySchedule", {
+      id: created.id,
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+});
+
+describe("budget.deleteBudgetLine — success", () => {
+  it("deletes a budget line, no longer visible in a fresh budget.budgetLines request", async () => {
+    const app = buildServer();
+    const created = await mutateBudget<CreatedBudgetLine>(app, "createBudgetLine", {
+      paydayDate: "2026-10-28",
+      subEnvelopeId: "sub-envelope-groceries-fund",
+      amount: "10.00",
+      description: "To be deleted",
+    });
+
+    const result = await mutateBudget<{ id: string }>(app, "deleteBudgetLine", {
+      id: created.id,
+    });
+    expect(result.id).toBe(created.id);
+
+    const lines = await queryBudget<CreatedBudgetLine[]>(app, "budgetLines");
+    expect(lines.find((line) => line.id === created.id)).toBeUndefined();
+    await app.close();
+  });
+
+  it("deletes an already-applied budget line without error, leaving its posted transaction untouched", async () => {
+    const app = buildServer();
+    const created = await mutateBudget<CreatedBudgetLine>(app, "createBudgetLine", {
+      paydayDate: "2026-10-29",
+      subEnvelopeId: "sub-envelope-groceries-fund",
+      amount: "10.00",
+      description: "Applied then deleted",
+    });
+    const applied = await mutateBudget<AppliedTransaction>(app, "applyBudgetLine", {
+      budgetLineId: created.id,
+      accountId: "account-savings",
+    });
+
+    await mutateBudget(app, "deleteBudgetLine", { id: created.id });
+
+    const lines = await queryBudget<CreatedBudgetLine[]>(app, "budgetLines");
+    expect(lines.find((line) => line.id === created.id)).toBeUndefined();
+
+    const transactions = await queryLedger<AppliedTransaction[]>(app, "transactions");
+    expect(transactions.find((transaction) => transaction.id === applied.id)).toBeTruthy();
+    await app.close();
+  });
+});
+
+describe("budget.deleteBudgetLine — validation errors", () => {
+  it("returns NOT_FOUND (404) for a well-formed but nonexistent id", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateBudgetExpectingError(app, "deleteBudgetLine", {
+      id: "budget-line-does-not-exist",
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("returns NOT_FOUND (404) when deleting the same id a second time", async () => {
+    const app = buildServer();
+    const created = await mutateBudget<CreatedBudgetLine>(app, "createBudgetLine", {
+      paydayDate: "2026-10-30",
+      subEnvelopeId: "sub-envelope-groceries-fund",
+      amount: "10.00",
+      description: "Delete twice",
+    });
+    await mutateBudget(app, "deleteBudgetLine", { id: created.id });
+
+    const { statusCode, error } = await mutateBudgetExpectingError(app, "deleteBudgetLine", {
+      id: created.id,
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+});
