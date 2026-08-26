@@ -761,6 +761,27 @@ and Archive/Delete for `PaydaySchedule`/`BudgetLine` remain separate, later, not
 increments. Verified via the mobile Jest/RNTL suite (30 new/updated tests in `budget.test.tsx`) and
 a production build; not manually driven in a live browser in this session.
 
+Increment 70 adds the server side of Update for the "Budget CRUD" thread: `updatePaydaySchedule`
+(`packages/shared/src/reference/payday-schedule.ts`) and `updateBudgetLine`
+(`packages/shared/src/domain/budget-line.ts`) mirror `updateAccount`/`updateSubEnvelope`'s partial-
+update pattern exactly — `id` is never touched by either, and each validates only the fields
+actually provided, the same way its `createX` sibling validates them when creating. `updateBudgetLine`
+additionally rejects (throws) updating a line where `isApplied` is already `true` — once a line has
+been turned into a real ledger `Transaction`, editing the allocation it describes would silently
+desync the two records with no re-sync mechanism to fix it, the same invariant `applyBudgetLine`
+already protects against double-posting (Increment 50); the domain function deliberately does NOT
+auto-derive `budgetPeriod` from a new `paydayDate` — both are taken as independent, explicit update
+fields, mirroring `createBudgetLine`'s own contract. `budget.updatePaydaySchedule`/
+`budget.updateBudgetLine` tRPC mutations wrap them with the existing `NOT_FOUND`/unwrapped-`Error`-
+propagation conventions; `budget.updateBudgetLine`'s router-level `resolveBudgetLineUpdates` helper
+is what actually derives `budgetPeriod` from a provided `paydayDate` (via `budgetPeriodContaining`)
+before calling the domain function — the same "router derives, domain function stays generic"
+split `createBudgetLine`'s router mutation already established, now proven distinct via a dedicated
+test asserting the domain function's own no-auto-derive behavior. `apps/server/src/domain-store.ts`
+gained `replacePaydaySchedule` (`replaceBudgetLine` already existed). Live-verified via curl. No UI
+wiring yet — Update controls on the Budget tab, plus Archive/Delete for both entities (both server
+and UI), remain separate, later, not-yet-scoped increments.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
