@@ -1,9 +1,11 @@
 import {
   formatCents,
+  paydaysInMonth,
   type Account,
   type AccountId,
   type BudgetLine,
   type PaydaySchedule,
+  type PaydayScheduleId,
   type SubEnvelope,
   type SubEnvelopeId,
 } from "@gastos/shared";
@@ -85,7 +87,7 @@ export default function BudgetScreen() {
             accounts={accounts.data}
           />
         ))}
-        <AddBudgetLineForm subEnvelopes={subEnvelopes.data} />
+        <AddBudgetLineForm subEnvelopes={subEnvelopes.data} paydaySchedules={paydaySchedules.data} />
       </View>
     </ScrollView>
   );
@@ -439,9 +441,9 @@ function useBudgetLineDelete(line: BudgetLine) {
 /**
  * Renders one `BudgetLine`: its target sub-envelope's resolved name (falling
  * back to the raw `subEnvelopeId` if no match is found), description,
- * payday date, amount, an Edit control (reusing `AddBudgetLineFields` pre-filled,
- * same reuse `PaydayScheduleRow` follows — hidden once `isApplied`, since the
- * server would reject the mutation anyway), and the apply-to-ledger controls.
+ * payday date, amount, an Edit control (revealing `BudgetLineEditFields`
+ * pre-filled — hidden once `isApplied`, since the server would reject the
+ * mutation anyway), and the apply-to-ledger controls.
  */
 function BudgetLineRow({
   line,
@@ -462,7 +464,7 @@ function BudgetLineRow({
 
   if (edit.isEditing) {
     return (
-      <AddBudgetLineFields
+      <BudgetLineEditFields
         subEnvelopes={subEnvelopes}
         paydayDate={edit.paydayDate}
         subEnvelopeId={edit.subEnvelopeId}
@@ -825,17 +827,109 @@ function AddPaydayScheduleFields(props: {
 
 // ---------------------------------------------------------------------------
 // "+ Add budget line" — the Create half of the "Budget CRUD" thread's
-// BudgetLine side, wiring budget.createBudgetLine.
+// BudgetLine side, wiring budget.createBudgetLine. Increment 74 replaces the
+// original free-typed payday-date input with a picker: choose a named
+// `PaydaySchedule`, then choose one of ITS actual computed payday dates
+// (via `paydaysInMonth`) — not an arbitrary typed date, and not implicitly
+// "whichever schedule happens to be first" the way `index.tsx`'s Today tab
+// still does. Editing an existing `BudgetLine` (`BudgetLineEditFields` below)
+// deliberately keeps the old free-text field instead: a `BudgetLine` doesn't
+// persist which schedule it came from (a deliberate scope decision — no
+// schema change), so the picker has nothing to pre-fill itself from there.
 // ---------------------------------------------------------------------------
+
+/** This month and next month as `{year, month}` pairs, from the real system clock —
+ * the window `candidatePaydayDates` computes upcoming paydays within. */
+function currentYearMonth(): { year: number; month: number } {
+  const now = new Date();
+  return { year: now.getFullYear(), month: now.getMonth() + 1 };
+}
+
+function nextYearMonth({ year, month }: { year: number; month: number }): {
+  year: number;
+  month: number;
+} {
+  return month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 };
+}
+
+/** This month's and next month's actual payday dates for `schedule`, via the shared
+ * `paydaysInMonth` — the concrete, pickable dates the "+ Add budget line" payday
+ * picker offers once a schedule is chosen. */
+function candidatePaydayDates(schedule: PaydaySchedule): readonly string[] {
+  const current = currentYearMonth();
+  const next = nextYearMonth(current);
+  return [
+    ...paydaysInMonth(schedule, current.year, current.month),
+    ...paydaysInMonth(schedule, next.year, next.month),
+  ];
+}
+
+/** The "+ Add budget line" payday picker's state: which `PaydaySchedule` is chosen,
+ * its resulting candidate dates, and which of those is chosen — split out of
+ * `useAddBudgetLineForm` purely to keep it under the length cap. */
+interface PaydayPickerState {
+  scheduleId: PaydayScheduleId | undefined;
+  isSchedulePickerOpen: boolean;
+  toggleSchedulePicker: () => void;
+  pickSchedule: (id: PaydayScheduleId) => void;
+  date: string | undefined;
+  isDatePickerOpen: boolean;
+  candidateDates: readonly string[];
+  toggleDatePicker: () => void;
+  pickDate: (date: string) => void;
+  reset: () => void;
+}
+
+function usePaydayPickerState(paydaySchedules: readonly PaydaySchedule[]): PaydayPickerState {
+  const [scheduleId, setScheduleId] = useState<PaydayScheduleId | undefined>(undefined);
+  const [isSchedulePickerOpen, setIsSchedulePickerOpen] = useState(false);
+  const [date, setDate] = useState<string | undefined>(undefined);
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false);
+
+  function pickSchedule(id: PaydayScheduleId) {
+    setScheduleId(id);
+    setDate(undefined);
+    setIsSchedulePickerOpen(false);
+  }
+
+  function pickDate(value: string) {
+    setDate(value);
+    setIsDatePickerOpen(false);
+  }
+
+  function reset() {
+    setScheduleId(undefined);
+    setDate(undefined);
+    setIsSchedulePickerOpen(false);
+    setIsDatePickerOpen(false);
+  }
+
+  const selectedSchedule = paydaySchedules.find((schedule) => schedule.id === scheduleId);
+  const candidateDates =
+    selectedSchedule === undefined ? [] : candidatePaydayDates(selectedSchedule);
+
+  return {
+    scheduleId,
+    isSchedulePickerOpen,
+    toggleSchedulePicker: () => setIsSchedulePickerOpen((open) => !open),
+    pickSchedule,
+    date,
+    isDatePickerOpen,
+    candidateDates,
+    toggleDatePicker: () => setIsDatePickerOpen((open) => !open),
+    pickDate,
+    reset,
+  };
+}
 
 /** `AddBudgetLineForm`'s state/mutation logic, split out to keep the form
  * component under the length cap. `budgetPeriod` is not collected here — the
  * server derives it from `paydayDate` (see `budget.ts`'s `createBudgetLine`). */
-function useAddBudgetLineForm() {
+function useAddBudgetLineForm(paydaySchedules: readonly PaydaySchedule[]) {
   const [isOpen, setIsOpen] = useState(false);
-  const [paydayDate, setPaydayDate] = useState("");
+  const payday = usePaydayPickerState(paydaySchedules);
   const [subEnvelopeId, setSubEnvelopeId] = useState<SubEnvelopeId | undefined>(undefined);
-  const [isPickerOpen, setIsPickerOpen] = useState(false);
+  const [isSubEnvelopePickerOpen, setIsSubEnvelopePickerOpen] = useState(false);
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const utils = trpc.useUtils();
@@ -848,9 +942,9 @@ function useAddBudgetLineForm() {
 
   function closeForm() {
     setIsOpen(false);
-    setPaydayDate("");
+    payday.reset();
     setSubEnvelopeId(undefined);
-    setIsPickerOpen(false);
+    setIsSubEnvelopePickerOpen(false);
     setAmount("");
     setDescription("");
     createBudgetLine.reset();
@@ -858,15 +952,15 @@ function useAddBudgetLineForm() {
 
   function pickSubEnvelope(id: SubEnvelopeId) {
     setSubEnvelopeId(id);
-    setIsPickerOpen(false);
+    setIsSubEnvelopePickerOpen(false);
   }
 
   function handleSave() {
-    if (subEnvelopeId === undefined) {
+    if (subEnvelopeId === undefined || payday.date === undefined) {
       return;
     }
     createBudgetLine.mutate({
-      paydayDate: paydayDate.trim(),
+      paydayDate: payday.date,
       subEnvelopeId,
       amount,
       description: description.trim(),
@@ -876,11 +970,10 @@ function useAddBudgetLineForm() {
   return {
     isOpen,
     setIsOpen,
-    paydayDate,
-    setPaydayDate,
+    payday,
     subEnvelopeId,
-    isPickerOpen,
-    togglePicker: () => setIsPickerOpen((open) => !open),
+    isSubEnvelopePickerOpen,
+    toggleSubEnvelopePicker: () => setIsSubEnvelopePickerOpen((open) => !open),
     pickSubEnvelope,
     amount,
     setAmount,
@@ -894,9 +987,15 @@ function useAddBudgetLineForm() {
 
 /** Inline "+ Add budget line" form: collapsed to a single button until
  * tapped, mirroring `AddPaydayScheduleForm` above but with an added
- * sub-envelope picker. */
-function AddBudgetLineForm({ subEnvelopes }: { subEnvelopes: readonly SubEnvelope[] }) {
-  const form = useAddBudgetLineForm();
+ * payday and sub-envelope picker. */
+function AddBudgetLineForm({
+  subEnvelopes,
+  paydaySchedules,
+}: {
+  subEnvelopes: readonly SubEnvelope[];
+  paydaySchedules: readonly PaydaySchedule[];
+}) {
+  const form = useAddBudgetLineForm(paydaySchedules);
 
   if (!form.isOpen) {
     return (
@@ -909,21 +1008,21 @@ function AddBudgetLineForm({ subEnvelopes }: { subEnvelopes: readonly SubEnvelop
   return (
     <AddBudgetLineFields
       subEnvelopes={subEnvelopes}
-      paydayDate={form.paydayDate}
+      paydaySchedules={paydaySchedules}
+      payday={form.payday}
       subEnvelopeId={form.subEnvelopeId}
-      isPickerOpen={form.isPickerOpen}
+      isPickerOpen={form.isSubEnvelopePickerOpen}
       amount={form.amount}
       description={form.description}
       canSave={
-        form.paydayDate.trim().length > 0 &&
+        form.payday.date !== undefined &&
         form.subEnvelopeId !== undefined &&
         isValidPositiveAmount(form.amount) &&
         form.description.trim().length > 0
       }
       isPending={form.createBudgetLine.isPending}
       isError={form.createBudgetLine.isError}
-      onPaydayDateChange={form.setPaydayDate}
-      onTogglePicker={form.togglePicker}
+      onTogglePicker={form.toggleSubEnvelopePicker}
       onPickSubEnvelope={form.pickSubEnvelope}
       onAmountChange={form.setAmount}
       onDescriptionChange={form.setDescription}
@@ -936,6 +1035,182 @@ function AddBudgetLineForm({ subEnvelopes }: { subEnvelopes: readonly SubEnvelop
 /** Props for `AddBudgetLineFields`, lifted out to a named interface so the function
  * body itself stays under the length cap. */
 interface AddBudgetLineFieldsProps {
+  subEnvelopes: readonly SubEnvelope[];
+  paydaySchedules: readonly PaydaySchedule[];
+  payday: PaydayPickerState;
+  subEnvelopeId: SubEnvelopeId | undefined;
+  isPickerOpen: boolean;
+  amount: string;
+  description: string;
+  canSave: boolean;
+  isPending: boolean;
+  isError: boolean;
+  onTogglePicker: () => void;
+  onPickSubEnvelope: (id: SubEnvelopeId) => void;
+  onAmountChange: (value: string) => void;
+  onDescriptionChange: (value: string) => void;
+  onCancel: () => void;
+  onSave: () => void;
+}
+
+/** The revealed `AddBudgetLineForm`'s inputs/controls — split out to keep the parent under the line/complexity caps. */
+function AddBudgetLineFields(props: AddBudgetLineFieldsProps) {
+  const disabled = props.isPending;
+  return (
+    <View style={styles.form}>
+      <PaydayPickerFields paydaySchedules={props.paydaySchedules} payday={props.payday} />
+      <SubEnvelopeFieldControl
+        subEnvelopes={props.subEnvelopes}
+        selectedSubEnvelopeId={props.subEnvelopeId}
+        isOpen={props.isPickerOpen}
+        onToggle={props.onTogglePicker}
+        onPick={props.onPickSubEnvelope}
+      />
+      <TextInput
+        style={styles.input}
+        placeholder="Description"
+        value={props.description}
+        editable={!disabled}
+        onChangeText={props.onDescriptionChange}
+      />
+      <TextInput
+        style={styles.input}
+        placeholder="Amount"
+        keyboardType="numbers-and-punctuation"
+        value={props.amount}
+        editable={!disabled}
+        onChangeText={props.onAmountChange}
+      />
+      {props.isError && <Text style={styles.error}>Couldn&apos;t save — try again.</Text>}
+      <FormSaveCancelButtons
+        disabled={disabled}
+        canSave={props.canSave}
+        isPending={props.isPending}
+        onCancel={props.onCancel}
+        onSave={props.onSave}
+      />
+    </View>
+  );
+}
+
+/** "Payday schedule: {name} ▾" toggle revealing the inline single-select list of
+ * every `PaydaySchedule` — the first step of the payday picker: pick a schedule
+ * before picking one of its actual computed dates. */
+function PaydayScheduleFieldControl({
+  paydaySchedules,
+  selectedScheduleId,
+  isOpen,
+  onToggle,
+  onPick,
+}: {
+  paydaySchedules: readonly PaydaySchedule[];
+  selectedScheduleId: PaydayScheduleId | undefined;
+  isOpen: boolean;
+  onToggle: () => void;
+  onPick: (id: PaydayScheduleId) => void;
+}) {
+  const selectedName =
+    selectedScheduleId === undefined
+      ? "Choose schedule"
+      : (paydaySchedules.find((schedule) => schedule.id === selectedScheduleId)?.name ??
+        selectedScheduleId);
+  return (
+    <View style={styles.pickerContainer}>
+      <Pressable style={styles.pickerToggle} onPress={onToggle}>
+        <Text style={styles.pickerToggleText}>Payday schedule: {selectedName} ▾</Text>
+      </Pressable>
+      {isOpen && (
+        <View style={styles.picker}>
+          {paydaySchedules.map((schedule) => (
+            <Pressable
+              key={schedule.id}
+              style={styles.pickerOption}
+              onPress={() => onPick(schedule.id)}
+            >
+              <Text>{schedule.name}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+/** "Payday: {date} ▾" toggle revealing the selected schedule's computed upcoming
+ * dates (this month + next month) — disabled until a schedule is picked, since
+ * there's nothing to offer before then. */
+function PaydayDateFieldControl({
+  candidateDates,
+  selectedDate,
+  isOpen,
+  onToggle,
+  onPick,
+}: {
+  candidateDates: readonly string[];
+  selectedDate: string | undefined;
+  isOpen: boolean;
+  onToggle: () => void;
+  onPick: (date: string) => void;
+}) {
+  const selectedLabel = selectedDate ?? "Choose date";
+  return (
+    <View style={styles.pickerContainer}>
+      <Pressable
+        style={styles.pickerToggle}
+        disabled={candidateDates.length === 0}
+        onPress={onToggle}
+      >
+        <Text style={styles.pickerToggleText}>Payday: {selectedLabel} ▾</Text>
+      </Pressable>
+      {isOpen && (
+        <View style={styles.picker}>
+          {candidateDates.map((date) => (
+            <Pressable key={date} style={styles.pickerOption} onPress={() => onPick(date)}>
+              <Text>{date}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+}
+
+/** Combines `PaydayScheduleFieldControl` and `PaydayDateFieldControl` into the
+ * "+ Add budget line" form's two-step payday picker. */
+function PaydayPickerFields({
+  paydaySchedules,
+  payday,
+}: {
+  paydaySchedules: readonly PaydaySchedule[];
+  payday: PaydayPickerState;
+}) {
+  return (
+    <>
+      <PaydayScheduleFieldControl
+        paydaySchedules={paydaySchedules}
+        selectedScheduleId={payday.scheduleId}
+        isOpen={payday.isSchedulePickerOpen}
+        onToggle={payday.toggleSchedulePicker}
+        onPick={payday.pickSchedule}
+      />
+      <PaydayDateFieldControl
+        candidateDates={payday.candidateDates}
+        selectedDate={payday.date}
+        isOpen={payday.isDatePickerOpen}
+        onToggle={payday.toggleDatePicker}
+        onPick={payday.pickDate}
+      />
+    </>
+  );
+}
+
+/** Props for `BudgetLineEditFields`, lifted out to a named interface so the function
+ * body itself stays under the length cap. Unlike `AddBudgetLineFields`, this keeps
+ * the original plain free-typed `paydayDate` field — an existing `BudgetLine`
+ * doesn't remember which `PaydaySchedule` it was created from (no persisted link,
+ * a deliberate scope decision), so the schedule+date picker has nothing to pre-fill
+ * itself from when editing. */
+interface BudgetLineEditFieldsProps {
   subEnvelopes: readonly SubEnvelope[];
   paydayDate: string;
   subEnvelopeId: SubEnvelopeId | undefined;
@@ -954,8 +1229,10 @@ interface AddBudgetLineFieldsProps {
   onSave: () => void;
 }
 
-/** The revealed `AddBudgetLineForm`'s inputs/controls — split out to keep the parent under the line/complexity caps. */
-function AddBudgetLineFields(props: AddBudgetLineFieldsProps) {
+/** `BudgetLineRow`'s edit form — split from `AddBudgetLineFields` (Increment 74) once
+ * create and edit stopped needing the exact same payday input; see the interface
+ * doc comment above for why. */
+function BudgetLineEditFields(props: BudgetLineEditFieldsProps) {
   const disabled = props.isPending;
   return (
     <View style={styles.form}>

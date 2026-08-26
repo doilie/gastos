@@ -61,6 +61,7 @@ import {
   formatCents,
   ledgerDateFromString,
   markBudgetLineApplied,
+  paydaysInMonth,
   paydayScheduleIdFromString,
   subEnvelopeIdFromString,
 } from "@gastos/shared";
@@ -661,13 +662,14 @@ describe("AddBudgetLineForm collapsed state", () => {
     expect(screen.queryByPlaceholderText("Description")).toBeNull();
   });
 
-  it("reveals the payday date/sub-envelope picker/description/amount fields on tap", async () => {
+  it("reveals the payday schedule/date/sub-envelope picker/description/amount fields on tap", async () => {
     mockEmptyBudgetScreen();
 
     await render(<BudgetScreen />);
     await fireEvent.press(screen.getByText("+ Add budget line"));
 
-    expect(screen.getByPlaceholderText("Payday date (YYYY-MM-DD)")).toBeTruthy();
+    expect(screen.getByText("Payday schedule: Choose schedule ▾")).toBeTruthy();
+    expect(screen.getByText("Payday: Choose date ▾")).toBeTruthy();
     expect(screen.getByText("Sub-envelope: Choose sub-envelope ▾")).toBeTruthy();
     expect(screen.getByPlaceholderText("Description")).toBeTruthy();
     expect(screen.getByPlaceholderText("Amount")).toBeTruthy();
@@ -694,9 +696,127 @@ describe("AddBudgetLineForm sub-envelope picker", () => {
   });
 });
 
-describe("AddBudgetLineForm save validation", () => {
-  it("disables Save until payday date, sub-envelope, positive amount, and description are all provided", async () => {
-    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+// `candidatePaydayDates` (behind the "+ Add budget line" payday picker) derives
+// "this month"/"next month" from the real system clock, so every test below that
+// picks or asserts on a specific date pins the clock — mirroring `index.test.tsx`'s
+// own `PINNED_TODAY`/fake-timer setup for its date-dependent daily-allowance test.
+const PINNED_TODAY = "2026-09-01";
+
+/** Narrows `values[0]` to non-`undefined` for test setup, failing fast with a clear
+ * message instead of silently proceeding with `undefined` if a fixture schedule
+ * unexpectedly has no computed payday in the pinned month. */
+function firstOrThrow<T>(values: readonly T[]): T {
+  const [first] = values;
+  if (first === undefined) {
+    throw new Error("firstOrThrow: expected at least one value");
+  }
+  return first;
+}
+
+describe("AddBudgetLineForm payday picker (pinned system clock)", () => {
+  beforeAll(() => {
+    jest.useFakeTimers({ advanceTimers: false });
+    jest.setSystemTime(new Date(`${PINNED_TODAY}T12:00:00.000Z`));
+  });
+
+  afterAll(() => {
+    jest.useRealTimers();
+  });
+
+  it("lists every payday schedule on toggle, and disables the date picker until one is picked", async () => {
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([salarySchedule]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([]));
+    mockAccountsUseQuery.mockReturnValue(success([]));
+
+    await render(<BudgetScreen />);
+    await fireEvent.press(screen.getByText("+ Add budget line"));
+
+    expect(screen.getByText("Payday: Choose date ▾")).toBeDisabled();
+
+    await fireEvent.press(screen.getByText("Payday schedule: Choose schedule ▾"));
+    expect(screen.getByText(salarySchedule.name)).toBeTruthy();
+
+    await fireEvent.press(screen.getByText(salarySchedule.name));
+
+    expect(screen.getByText(`Payday schedule: ${salarySchedule.name} ▾`)).toBeTruthy();
+    expect(screen.getByText("Payday: Choose date ▾")).toBeEnabled();
+  });
+
+  it("offers this month's and next month's actual computed payday dates for the picked schedule, and updates the label on pick", async () => {
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([salarySchedule]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([]));
+    mockAccountsUseQuery.mockReturnValue(success([]));
+
+    await render(<BudgetScreen />);
+    await fireEvent.press(screen.getByText("+ Add budget line"));
+    await fireEvent.press(screen.getByText("Payday schedule: Choose schedule ▾"));
+    await fireEvent.press(screen.getByText(salarySchedule.name));
+    await fireEvent.press(screen.getByText("Payday: Choose date ▾"));
+
+    const septemberDates = paydaysInMonth(salarySchedule, 2026, 9);
+    const octoberDates = paydaysInMonth(salarySchedule, 2026, 10);
+    for (const date of [...septemberDates, ...octoberDates]) {
+      expect(screen.getByText(date)).toBeTruthy();
+    }
+
+    const septemberFirst = firstOrThrow(septemberDates);
+    await fireEvent.press(screen.getByText(septemberFirst));
+
+    expect(screen.getByText(`Payday: ${septemberFirst} ▾`)).toBeTruthy();
+  });
+});
+
+describe("AddBudgetLineForm payday picker reset (pinned system clock)", () => {
+  beforeAll(() => {
+    jest.useFakeTimers({ advanceTimers: false });
+    jest.setSystemTime(new Date(`${PINNED_TODAY}T12:00:00.000Z`));
+  });
+
+  afterAll(() => {
+    jest.useRealTimers();
+  });
+
+  it("resets the picked date when a different schedule is picked", async () => {
+    const otherSchedule = createPaydaySchedule({
+      id: paydayScheduleIdFromString("sched-2"),
+      name: "Freelance",
+      paydayDaysOfMonth: [1],
+    });
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([salarySchedule, otherSchedule]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([]));
+    mockAccountsUseQuery.mockReturnValue(success([]));
+
+    await render(<BudgetScreen />);
+    await fireEvent.press(screen.getByText("+ Add budget line"));
+    await fireEvent.press(screen.getByText("Payday schedule: Choose schedule ▾"));
+    await fireEvent.press(screen.getByText(salarySchedule.name));
+    await fireEvent.press(screen.getByText("Payday: Choose date ▾"));
+    const septemberFirst = firstOrThrow(paydaysInMonth(salarySchedule, 2026, 9));
+    await fireEvent.press(screen.getByText(septemberFirst));
+    expect(screen.getByText(`Payday: ${septemberFirst} ▾`)).toBeTruthy();
+
+    await fireEvent.press(screen.getByText(`Payday schedule: ${salarySchedule.name} ▾`));
+    await fireEvent.press(screen.getByText(otherSchedule.name));
+
+    expect(screen.getByText("Payday: Choose date ▾")).toBeTruthy();
+  });
+});
+
+describe("AddBudgetLineForm save validation (pinned system clock)", () => {
+  beforeAll(() => {
+    jest.useFakeTimers({ advanceTimers: false });
+    jest.setSystemTime(new Date(`${PINNED_TODAY}T12:00:00.000Z`));
+  });
+
+  afterAll(() => {
+    jest.useRealTimers();
+  });
+
+  it("disables Save until payday schedule+date, sub-envelope, positive amount, and description are all provided", async () => {
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([salarySchedule]));
     mockBudgetLinesUseQuery.mockReturnValue(success([]));
     mockSubEnvelopesUseQuery.mockReturnValue(success([groceriesFund]));
     mockAccountsUseQuery.mockReturnValue(success([]));
@@ -706,10 +826,6 @@ describe("AddBudgetLineForm save validation", () => {
 
     expect(screen.getByText("Save")).toBeDisabled();
 
-    await fireEvent.changeText(
-      screen.getByPlaceholderText("Payday date (YYYY-MM-DD)"),
-      "2026-09-15",
-    );
     await fireEvent.changeText(screen.getByPlaceholderText("Description"), "September groceries");
     await fireEvent.changeText(screen.getByPlaceholderText("Amount"), "0.00");
     expect(screen.getByText("Save")).toBeDisabled();
@@ -719,25 +835,44 @@ describe("AddBudgetLineForm save validation", () => {
 
     await fireEvent.press(screen.getByText("Sub-envelope: Choose sub-envelope ▾"));
     await fireEvent.press(screen.getByText(groceriesFund.name));
+    expect(screen.getByText("Save")).toBeDisabled();
+
+    await fireEvent.press(screen.getByText("Payday schedule: Choose schedule ▾"));
+    await fireEvent.press(screen.getByText(salarySchedule.name));
+    expect(screen.getByText("Save")).toBeDisabled();
+
+    await fireEvent.press(screen.getByText("Payday: Choose date ▾"));
+    const septemberFirst = firstOrThrow(paydaysInMonth(salarySchedule, 2026, 9));
+    await fireEvent.press(screen.getByText(septemberFirst));
     expect(screen.getByText("Save")).toBeEnabled();
   });
 });
 
-describe("AddBudgetLineForm submission", () => {
-  it("calls createBudgetLine.mutate with trimmed paydayDate/description, the picked subEnvelopeId, and the amount unnegated", async () => {
+describe("AddBudgetLineForm submission (pinned system clock)", () => {
+  beforeAll(() => {
+    jest.useFakeTimers({ advanceTimers: false });
+    jest.setSystemTime(new Date(`${PINNED_TODAY}T12:00:00.000Z`));
+  });
+
+  afterAll(() => {
+    jest.useRealTimers();
+  });
+
+  it("calls createBudgetLine.mutate with the picked payday date, trimmed description, the picked subEnvelopeId, and the amount unnegated", async () => {
     const mutate = jest.fn();
     mockCreateBudgetLineUseMutation.mockReturnValue(mockMutationResult({ mutate }));
-    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([salarySchedule]));
     mockBudgetLinesUseQuery.mockReturnValue(success([]));
     mockSubEnvelopesUseQuery.mockReturnValue(success([groceriesFund]));
     mockAccountsUseQuery.mockReturnValue(success([]));
 
     await render(<BudgetScreen />);
     await fireEvent.press(screen.getByText("+ Add budget line"));
-    await fireEvent.changeText(
-      screen.getByPlaceholderText("Payday date (YYYY-MM-DD)"),
-      "  2026-09-15  ",
-    );
+    await fireEvent.press(screen.getByText("Payday schedule: Choose schedule ▾"));
+    await fireEvent.press(screen.getByText(salarySchedule.name));
+    await fireEvent.press(screen.getByText("Payday: Choose date ▾"));
+    const septemberFirst = firstOrThrow(paydaysInMonth(salarySchedule, 2026, 9));
+    await fireEvent.press(screen.getByText(septemberFirst));
     await fireEvent.press(screen.getByText("Sub-envelope: Choose sub-envelope ▾"));
     await fireEvent.press(screen.getByText(groceriesFund.name));
     await fireEvent.changeText(
@@ -749,7 +884,7 @@ describe("AddBudgetLineForm submission", () => {
 
     expect(mutate).toHaveBeenCalledTimes(1);
     expect(mutate).toHaveBeenCalledWith({
-      paydayDate: "2026-09-15",
+      paydayDate: septemberFirst,
       subEnvelopeId: groceriesFund.id,
       amount: "300.00",
       description: "September groceries",
