@@ -801,6 +801,23 @@ halves for both `PaydaySchedule` and `BudgetLine`; Archive/Delete (server and UI
 remains a separate, later, not-yet-scoped increment. Verified via the mobile Jest/RNTL suite (11 new
 tests) and a production build; not manually driven in a live browser in this session.
 
+Increment 72 adds the server side of Delete, completing the "Budget CRUD" thread's server surface:
+unlike every other entity's "delete" in this codebase — `Account`/`SubEnvelope`'s reversible
+archive, or `Category`/`EnvelopeGroup`'s referential-integrity-guarded hard delete —
+`budget.deletePaydaySchedule`/`budget.deleteBudgetLine` are plain, unconditional hard deletes with
+no guard at all, the same shape `ledger.deleteTransaction` already established: nothing in
+`packages/db`'s schema references either `PaydayScheduleId` or `BudgetLineId` by foreign key (a
+`BudgetLine` doesn't even record which `PaydaySchedule` it came from), so there's nothing to check
+before removing a row. Deleting an already-applied `BudgetLine` is deliberately allowed (no
+`isApplied` guard, unlike `updateBudgetLine`) — its already-posted `Transaction` has no
+`budgetLineId` column pointing back at it, so removing the allocation record can never desync
+anything; a dedicated test proves the `Transaction` survives the delete. `apps/server/src/
+domain-store.ts` gained `deletePaydaySchedule`/`deleteBudgetLine` (plain `db.delete(...).where(...)`,
+mirroring `ledger-store.ts`'s `deleteTransaction`); the router mutations look the target up first
+(`NOT_FOUND` if missing, including on a repeat delete of the same id) before deleting, mirroring
+`ledger.deleteTransaction`'s exact shape. Live-verified via curl. No UI wiring yet — Delete controls
+on the Budget tab are the last remaining piece of the "Budget CRUD" thread.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
