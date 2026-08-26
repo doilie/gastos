@@ -818,6 +818,20 @@ mirroring `ledger-store.ts`'s `deleteTransaction`); the router mutations look th
 `ledger.deleteTransaction`'s exact shape. Live-verified via curl. No UI wiring yet — Delete controls
 on the Budget tab are the last remaining piece of the "Budget CRUD" thread.
 
+Increment 73 wires that UI, completing the "Budget CRUD" thread end-to-end: both
+`PaydayScheduleRow` and `BudgetLineRow` gain a Delete control with an inline "Delete this X?"
+confirmation, mirroring `index.tsx`'s `TransactionRow` delete flow exactly (`DeleteConfirm`, a new
+component shared by both rows, mirrors `TransactionDeleteConfirm`) — a generic fallback error
+message only, no server-message passthrough, since neither `deletePaydaySchedule` nor
+`deleteBudgetLine` can produce a meaningful specific rejection reason (both are unconditional hard
+deletes, Increment 72). `BudgetLineRow`'s Delete control is deliberately never gated on
+`line.isApplied`, unlike its Edit control — deleting an already-applied line is allowed
+server-side, so the UI offers it unconditionally too; a dedicated test proves Delete stays visible
+(while Edit disappears) once a line is applied. This completes the "Budget CRUD" thread in full:
+Create, Read, Update, and Delete are now live, both server and UI, for both `PaydaySchedule` and
+`BudgetLine`. Verified via the mobile Jest/RNTL suite (10 new tests) and a production build; not
+manually driven in a live browser in this session.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
