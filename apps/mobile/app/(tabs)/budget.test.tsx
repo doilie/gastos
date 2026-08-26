@@ -24,6 +24,12 @@ jest.mock("../../lib/trpc", () => ({
       updateBudgetLine: {
         useMutation: jest.fn(),
       },
+      deletePaydaySchedule: {
+        useMutation: jest.fn(),
+      },
+      deleteBudgetLine: {
+        useMutation: jest.fn(),
+      },
     },
     reference: {
       subEnvelopes: {
@@ -101,6 +107,10 @@ const mockUpdatePaydayScheduleUseMutation = trpc.budget.updatePaydaySchedule
   .useMutation as unknown as jest.Mock<MockMutationResult>;
 const mockUpdateBudgetLineUseMutation = trpc.budget.updateBudgetLine
   .useMutation as unknown as jest.Mock<MockMutationResult>;
+const mockDeletePaydayScheduleUseMutation = trpc.budget.deletePaydaySchedule
+  .useMutation as unknown as jest.Mock<MockMutationResult>;
+const mockDeleteBudgetLineUseMutation = trpc.budget.deleteBudgetLine
+  .useMutation as unknown as jest.Mock<MockMutationResult>;
 const mockUseUtils = trpc.useUtils as unknown as jest.Mock<{
   budget: {
     paydaySchedules: { invalidate: jest.Mock };
@@ -147,6 +157,8 @@ beforeEach(() => {
   mockCreateBudgetLineUseMutation.mockReturnValue(mockMutationResult());
   mockUpdatePaydayScheduleUseMutation.mockReturnValue(mockMutationResult());
   mockUpdateBudgetLineUseMutation.mockReturnValue(mockMutationResult());
+  mockDeletePaydayScheduleUseMutation.mockReturnValue(mockMutationResult());
+  mockDeleteBudgetLineUseMutation.mockReturnValue(mockMutationResult());
   mockUseUtils.mockReturnValue({
     budget: {
       paydaySchedules: { invalidate: jest.fn() },
@@ -169,6 +181,8 @@ afterEach(() => {
   mockCreateBudgetLineUseMutation.mockReset();
   mockUpdatePaydayScheduleUseMutation.mockReset();
   mockUpdateBudgetLineUseMutation.mockReset();
+  mockDeletePaydayScheduleUseMutation.mockReset();
+  mockDeleteBudgetLineUseMutation.mockReset();
   mockUseUtils.mockReset();
 });
 
@@ -950,5 +964,157 @@ describe("BudgetLineRow edit — save", () => {
     await fireEvent.press(screen.getByText("Edit"));
 
     expect(screen.getByText("Couldn't save — try again.")).toBeTruthy();
+  });
+});
+
+describe("PaydayScheduleRow delete flow", () => {
+  it("tapping Delete reveals the confirmation without calling deletePaydaySchedule.mutate", async () => {
+    const mutate = jest.fn();
+    mockDeletePaydayScheduleUseMutation.mockReturnValue(mockMutationResult({ mutate }));
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([salarySchedule]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([]));
+    mockAccountsUseQuery.mockReturnValue(success([]));
+
+    await render(<BudgetScreen />);
+    await fireEvent.press(screen.getByText("Delete"));
+
+    expect(screen.getByText("Delete this payday schedule?")).toBeTruthy();
+    expect(screen.getByText("Cancel")).toBeTruthy();
+    expect(screen.getByText("Confirm")).toBeTruthy();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it("tapping Cancel in the confirmation dismisses it without calling deletePaydaySchedule.mutate", async () => {
+    const mutate = jest.fn();
+    mockDeletePaydayScheduleUseMutation.mockReturnValue(mockMutationResult({ mutate }));
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([salarySchedule]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([]));
+    mockAccountsUseQuery.mockReturnValue(success([]));
+
+    await render(<BudgetScreen />);
+    await fireEvent.press(screen.getByText("Delete"));
+    await fireEvent.press(screen.getByText("Cancel"));
+
+    expect(screen.queryByText("Delete this payday schedule?")).toBeNull();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it("tapping Confirm calls deletePaydaySchedule.mutate with the schedule's id", async () => {
+    const mutate = jest.fn();
+    mockDeletePaydayScheduleUseMutation.mockReturnValue(mockMutationResult({ mutate }));
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([salarySchedule]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([]));
+    mockAccountsUseQuery.mockReturnValue(success([]));
+
+    await render(<BudgetScreen />);
+    await fireEvent.press(screen.getByText("Delete"));
+    await fireEvent.press(screen.getByText("Confirm"));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate).toHaveBeenCalledWith({ id: salarySchedule.id });
+  });
+
+  it("shows the generic error message when the delete mutation errors", async () => {
+    mockDeletePaydayScheduleUseMutation.mockReturnValue(mockMutationResult({ isError: true }));
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([salarySchedule]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([]));
+    mockAccountsUseQuery.mockReturnValue(success([]));
+
+    await render(<BudgetScreen />);
+
+    expect(screen.getByText("Couldn't delete — try again.")).toBeTruthy();
+  });
+});
+
+describe("BudgetLineRow delete control visibility", () => {
+  it("shows a Delete control for a not-yet-applied line", async () => {
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([groceriesLine]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([groceriesFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA]));
+
+    await render(<BudgetScreen />);
+
+    expect(screen.getByText("Delete")).toBeTruthy();
+  });
+
+  it("shows a Delete control for an already-applied line too (unlike Edit, delete is never gated on isApplied)", async () => {
+    const appliedLine = markBudgetLineApplied(groceriesLine);
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([appliedLine]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([groceriesFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA]));
+
+    await render(<BudgetScreen />);
+
+    expect(screen.queryByText("Edit")).toBeNull();
+    expect(screen.getByText("Delete")).toBeTruthy();
+  });
+});
+
+describe("BudgetLineRow delete flow", () => {
+  it("tapping Delete reveals the confirmation without calling deleteBudgetLine.mutate", async () => {
+    const mutate = jest.fn();
+    mockDeleteBudgetLineUseMutation.mockReturnValue(mockMutationResult({ mutate }));
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([groceriesLine]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([groceriesFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA]));
+
+    await render(<BudgetScreen />);
+    await fireEvent.press(screen.getByText("Delete"));
+
+    expect(screen.getByText("Delete this budget line?")).toBeTruthy();
+    expect(screen.getByText("Cancel")).toBeTruthy();
+    expect(screen.getByText("Confirm")).toBeTruthy();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it("tapping Cancel in the confirmation dismisses it without calling deleteBudgetLine.mutate", async () => {
+    const mutate = jest.fn();
+    mockDeleteBudgetLineUseMutation.mockReturnValue(mockMutationResult({ mutate }));
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([groceriesLine]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([groceriesFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA]));
+
+    await render(<BudgetScreen />);
+    await fireEvent.press(screen.getByText("Delete"));
+    await fireEvent.press(screen.getByText("Cancel"));
+
+    expect(screen.queryByText("Delete this budget line?")).toBeNull();
+    expect(mutate).not.toHaveBeenCalled();
+  });
+
+  it("tapping Confirm calls deleteBudgetLine.mutate with the line's id", async () => {
+    const mutate = jest.fn();
+    mockDeleteBudgetLineUseMutation.mockReturnValue(mockMutationResult({ mutate }));
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([groceriesLine]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([groceriesFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA]));
+
+    await render(<BudgetScreen />);
+    await fireEvent.press(screen.getByText("Delete"));
+    await fireEvent.press(screen.getByText("Confirm"));
+
+    expect(mutate).toHaveBeenCalledTimes(1);
+    expect(mutate).toHaveBeenCalledWith({ id: groceriesLine.id });
+  });
+
+  it("shows the generic error message when the delete mutation errors", async () => {
+    mockDeleteBudgetLineUseMutation.mockReturnValue(mockMutationResult({ isError: true }));
+    mockPaydaySchedulesUseQuery.mockReturnValue(success([]));
+    mockBudgetLinesUseQuery.mockReturnValue(success([groceriesLine]));
+    mockSubEnvelopesUseQuery.mockReturnValue(success([groceriesFund]));
+    mockAccountsUseQuery.mockReturnValue(success([accountA]));
+
+    await render(<BudgetScreen />);
+
+    expect(screen.getByText("Couldn't delete — try again.")).toBeTruthy();
   });
 });

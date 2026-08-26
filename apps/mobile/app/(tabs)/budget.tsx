@@ -151,8 +151,44 @@ function usePaydayScheduleEdit(schedule: PaydaySchedule) {
  * same fields component rather than duplicating it, since create and edit need the
  * exact same name/days inputs.
  */
+/** `PaydayScheduleRow`'s delete-confirmation state and `deletePaydaySchedule` mutation
+ * — split into its own hook, mirroring `index.tsx`'s `useTransactionDelete`.
+ * `deletePaydaySchedule` is an unconditional hard delete (Increment 72) with no
+ * meaningful specific rejection reason, so no server error passthrough is needed. */
+function usePaydayScheduleDelete(schedule: PaydaySchedule) {
+  const [isConfirming, setIsConfirming] = useState(false);
+  const utils = trpc.useUtils();
+  const deletePaydaySchedule = trpc.budget.deletePaydaySchedule.useMutation({
+    onSuccess: () => void utils.budget.paydaySchedules.invalidate(),
+  });
+
+  function startDelete() {
+    deletePaydaySchedule.reset();
+    setIsConfirming(true);
+  }
+
+  function cancelDelete() {
+    deletePaydaySchedule.reset();
+    setIsConfirming(false);
+  }
+
+  function confirmDelete() {
+    deletePaydaySchedule.mutate({ id: schedule.id });
+  }
+
+  return {
+    isConfirming,
+    isPending: deletePaydaySchedule.isPending,
+    isError: deletePaydaySchedule.isError,
+    startDelete,
+    cancelDelete,
+    confirmDelete,
+  };
+}
+
 function PaydayScheduleRow({ schedule }: { schedule: PaydaySchedule }) {
   const edit = usePaydayScheduleEdit(schedule);
+  const del = usePaydayScheduleDelete(schedule);
 
   if (edit.isEditing) {
     return (
@@ -174,13 +210,93 @@ function PaydayScheduleRow({ schedule }: { schedule: PaydaySchedule }) {
   }
 
   return (
-    <View style={styles.scheduleRow}>
-      <Text style={styles.scheduleText}>
-        {schedule.name} — paydays on day {schedule.paydayDaysOfMonth.join(", ")}
-      </Text>
-      <Pressable style={styles.editButton} onPress={edit.startEdit}>
-        <Text style={styles.editButtonText}>Edit</Text>
-      </Pressable>
+    <PaydayScheduleRowDisplay
+      schedule={schedule}
+      isConfirmingDelete={del.isConfirming}
+      isDeletePending={del.isPending}
+      isDeleteError={del.isError}
+      onEdit={edit.startEdit}
+      onStartDelete={del.startDelete}
+      onCancelDelete={del.cancelDelete}
+      onConfirmDelete={del.confirmDelete}
+    />
+  );
+}
+
+/** `PaydayScheduleRow`'s non-editing display: name/days plus Edit/Delete controls and
+ * an inline delete confirmation — split out to keep `PaydayScheduleRow` under the
+ * line/complexity caps, mirroring `index.tsx`'s `TransactionRowDisplay`. */
+function PaydayScheduleRowDisplay(props: {
+  schedule: PaydaySchedule;
+  isConfirmingDelete: boolean;
+  isDeletePending: boolean;
+  isDeleteError: boolean;
+  onEdit: () => void;
+  onStartDelete: () => void;
+  onCancelDelete: () => void;
+  onConfirmDelete: () => void;
+}) {
+  const { schedule } = props;
+  const rowActionsDisabled = props.isConfirmingDelete || props.isDeletePending;
+  return (
+    <View>
+      <View style={styles.scheduleRow}>
+        <Text style={styles.scheduleText}>
+          {schedule.name} — paydays on day {schedule.paydayDaysOfMonth.join(", ")}
+        </Text>
+        <View style={styles.rowButtons}>
+          <Pressable style={styles.editButton} disabled={rowActionsDisabled} onPress={props.onEdit}>
+            <Text style={styles.editButtonText}>Edit</Text>
+          </Pressable>
+          <Pressable
+            style={styles.editButton}
+            disabled={rowActionsDisabled}
+            onPress={props.onStartDelete}
+          >
+            <Text style={styles.editButtonText}>Delete</Text>
+          </Pressable>
+        </View>
+      </View>
+      {props.isDeleteError && <Text style={styles.error}>Couldn&apos;t delete — try again.</Text>}
+      {props.isConfirmingDelete && (
+        <DeleteConfirm
+          message="Delete this payday schedule?"
+          isPending={props.isDeletePending}
+          onCancel={props.onCancelDelete}
+          onConfirm={props.onConfirmDelete}
+        />
+      )}
+    </View>
+  );
+}
+
+/** Inline "Delete this X?" confirmation, shared by `PaydayScheduleRow` and
+ * `BudgetLineRow`'s delete flows, mirroring `index.tsx`'s `TransactionDeleteConfirm`.
+ * Neither underlying mutation can produce a meaningful specific rejection reason
+ * (both are unconditional hard deletes — Increment 72), so no server error
+ * passthrough is needed here; the generic fallback is shown by the caller. */
+function DeleteConfirm({
+  message,
+  isPending,
+  onCancel,
+  onConfirm,
+}: {
+  message: string;
+  isPending: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <View style={styles.form}>
+      <Text>{message}</Text>
+      <View style={styles.formButtons}>
+        <Pressable style={styles.formButton} disabled={isPending} onPress={onCancel}>
+          <Text>Cancel</Text>
+        </Pressable>
+        <Pressable style={styles.formButton} disabled={isPending} onPress={onConfirm}>
+          <Text>{isPending ? "Deleting…" : "Confirm"}</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -284,6 +400,42 @@ function useBudgetLineEdit(line: BudgetLine) {
   };
 }
 
+/** `BudgetLineRow`'s delete-confirmation state and `deleteBudgetLine` mutation — split
+ * into its own hook, mirroring `usePaydayScheduleDelete` above. Unlike
+ * `useBudgetLineEdit`, deleting an already-applied line is allowed server-side
+ * (Increment 72), so this hook (and the Delete control that uses it) is never
+ * gated on `line.isApplied`. */
+function useBudgetLineDelete(line: BudgetLine) {
+  const [isConfirming, setIsConfirming] = useState(false);
+  const utils = trpc.useUtils();
+  const deleteBudgetLine = trpc.budget.deleteBudgetLine.useMutation({
+    onSuccess: () => void utils.budget.budgetLines.invalidate(),
+  });
+
+  function startDelete() {
+    deleteBudgetLine.reset();
+    setIsConfirming(true);
+  }
+
+  function cancelDelete() {
+    deleteBudgetLine.reset();
+    setIsConfirming(false);
+  }
+
+  function confirmDelete() {
+    deleteBudgetLine.mutate({ id: line.id });
+  }
+
+  return {
+    isConfirming,
+    isPending: deleteBudgetLine.isPending,
+    isError: deleteBudgetLine.isError,
+    startDelete,
+    cancelDelete,
+    confirmDelete,
+  };
+}
+
 /**
  * Renders one `BudgetLine`: its target sub-envelope's resolved name (falling
  * back to the raw `subEnvelopeId` if no match is found), description,
@@ -301,6 +453,7 @@ function BudgetLineRow({
   accounts: readonly Account[];
 }) {
   const edit = useBudgetLineEdit(line);
+  const del = useBudgetLineDelete(line);
   const targetSubEnvelope = subEnvelopes.find(
     (subEnvelope) => subEnvelope.id === line.subEnvelopeId,
   );
@@ -341,46 +494,76 @@ function BudgetLineRow({
       candidateAccountIds={candidateAccountIds}
       accounts={accounts}
       onEdit={edit.startEdit}
+      isConfirmingDelete={del.isConfirming}
+      isDeletePending={del.isPending}
+      isDeleteError={del.isError}
+      onStartDelete={del.startDelete}
+      onCancelDelete={del.cancelDelete}
+      onConfirmDelete={del.confirmDelete}
     />
   );
 }
 
-/** `BudgetLineRow`'s non-editing display — split out to keep `BudgetLineRow` under
- * the line/complexity caps, mirroring `more.tsx`'s `AccountRowDisplay`. */
-function BudgetLineRowDisplay({
-  line,
-  subEnvelopeName,
-  candidateAccountIds,
-  accounts,
-  onEdit,
-}: {
+/** Props for `BudgetLineRowDisplay`, lifted out to a named interface so the function
+ * body itself stays under the length cap. */
+interface BudgetLineRowDisplayProps {
   line: BudgetLine;
   subEnvelopeName: string;
   candidateAccountIds: readonly AccountId[];
   accounts: readonly Account[];
   onEdit: () => void;
-}) {
+  isConfirmingDelete: boolean;
+  isDeletePending: boolean;
+  isDeleteError: boolean;
+  onStartDelete: () => void;
+  onCancelDelete: () => void;
+  onConfirmDelete: () => void;
+}
+
+/** `BudgetLineRow`'s non-editing display — split out to keep `BudgetLineRow` under
+ * the line/complexity caps, mirroring `more.tsx`'s `AccountRowDisplay`. The Delete
+ * control (unlike Edit) is always shown, even for an already-applied line — deleting
+ * one is allowed server-side (Increment 72). */
+function BudgetLineRowDisplay(props: BudgetLineRowDisplayProps) {
+  const { line } = props;
+  const rowActionsDisabled = props.isConfirmingDelete || props.isDeletePending;
   return (
     <View style={styles.rowContainer}>
       <View style={styles.row}>
         <View>
-          <Text style={styles.lineSubEnvelope}>{subEnvelopeName}</Text>
+          <Text style={styles.lineSubEnvelope}>{props.subEnvelopeName}</Text>
           <Text style={styles.lineDescription}>{line.description}</Text>
           <Text style={styles.lineDate}>{line.paydayDate}</Text>
         </View>
         <View style={styles.rowButtons}>
           <Text style={styles.lineAmount}>{formatCents(line.amount)}</Text>
           {!line.isApplied && (
-            <Pressable style={styles.editButton} onPress={onEdit}>
+            <Pressable style={styles.editButton} disabled={rowActionsDisabled} onPress={props.onEdit}>
               <Text style={styles.editButtonText}>Edit</Text>
             </Pressable>
           )}
+          <Pressable
+            style={styles.editButton}
+            disabled={rowActionsDisabled}
+            onPress={props.onStartDelete}
+          >
+            <Text style={styles.editButtonText}>Delete</Text>
+          </Pressable>
         </View>
       </View>
+      {props.isDeleteError && <Text style={styles.error}>Couldn&apos;t delete — try again.</Text>}
+      {props.isConfirmingDelete && (
+        <DeleteConfirm
+          message="Delete this budget line?"
+          isPending={props.isDeletePending}
+          onCancel={props.onCancelDelete}
+          onConfirm={props.onConfirmDelete}
+        />
+      )}
       <BudgetLineApplyControls
         budgetLineId={line.id}
-        candidateAccountIds={candidateAccountIds}
-        accounts={accounts}
+        candidateAccountIds={props.candidateAccountIds}
+        accounts={props.accounts}
         isApplied={line.isApplied}
       />
     </View>
