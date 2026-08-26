@@ -29,10 +29,21 @@ jest.mock("../../lib/trpc", () => ({
       categories: {
         useQuery: jest.fn(),
       },
+      accounts: {
+        useQuery: jest.fn(),
+      },
     },
     budget: {
       paydaySchedules: {
         useQuery: jest.fn(),
+      },
+    },
+    cards: {
+      creditCards: {
+        useQuery: jest.fn(),
+      },
+      createCardPurchase: {
+        useMutation: jest.fn(),
       },
     },
     useUtils: jest.fn(),
@@ -88,6 +99,23 @@ interface MockPaydaySchedule {
   paydayDaysOfMonth: readonly number[];
 }
 
+// Minimal shapes read by `QuickAddForm`'s own hooks (unconditionally called on every
+// render, even while the form is collapsed) — same "just the fields needed" style as
+// `MockSubEnvelope`/`MockPaydaySchedule` above. These existing tests never open the
+// form, so their contents are never asserted on, just present so the hooks don't crash.
+interface MockAccount {
+  id: string;
+  name: string;
+  currency: string;
+}
+
+interface MockCreditCard {
+  id: string;
+  name: string;
+  currency: string;
+  cutoffDay: number;
+}
+
 interface MockMutationResult {
   mutate: jest.Mock;
   isPending: boolean;
@@ -113,10 +141,19 @@ const mockPaydaySchedulesUseQuery = trpc.budget.paydaySchedules
   .useQuery as unknown as jest.Mock<MockQueryResult<MockPaydaySchedule[]>>;
 const mockSubEnvelopeBalanceUseQuery = trpc.ledger.subEnvelopeBalance
   .useQuery as unknown as jest.Mock<MockQueryResult<number>>;
+const mockAccountsUseQuery = trpc.reference.accounts
+  .useQuery as unknown as jest.Mock<MockQueryResult<MockAccount[]>>;
+const mockCreditCardsUseQuery = trpc.cards.creditCards
+  .useQuery as unknown as jest.Mock<MockQueryResult<MockCreditCard[]>>;
+const mockCreateCardPurchaseUseMutation = trpc.cards.createCardPurchase
+  .useMutation as unknown as jest.Mock<MockMutationResult>;
 const mockUseUtils = trpc.useUtils as unknown as jest.Mock<{
   ledger: {
     spendableBalance: { invalidate: jest.Mock };
     transactions: { invalidate: jest.Mock };
+  };
+  cards: {
+    cardPurchases: { invalidate: jest.Mock };
   };
 }>;
 
@@ -201,10 +238,16 @@ beforeEach(() => {
   // this file) keep passing unmodified.
   mockPaydaySchedulesUseQuery.mockReturnValue(success([paydayScheduleFixture]));
   mockSubEnvelopeBalanceUseQuery.mockReturnValue(success(centsFromInt(0)));
+  mockAccountsUseQuery.mockReturnValue(success([]));
+  mockCreditCardsUseQuery.mockReturnValue(success([]));
+  mockCreateCardPurchaseUseMutation.mockReturnValue(mockMutationResult());
   mockUseUtils.mockReturnValue({
     ledger: {
       spendableBalance: { invalidate: jest.fn() },
       transactions: { invalidate: jest.fn() },
+    },
+    cards: {
+      cardPurchases: { invalidate: jest.fn() },
     },
   });
 });
@@ -219,6 +262,9 @@ afterEach(() => {
   mockDeleteTransactionUseMutation.mockReset();
   mockPaydaySchedulesUseQuery.mockReset();
   mockSubEnvelopeBalanceUseQuery.mockReset();
+  mockAccountsUseQuery.mockReset();
+  mockCreditCardsUseQuery.mockReset();
+  mockCreateCardPurchaseUseMutation.mockReset();
   mockUseUtils.mockReset();
 });
 
