@@ -706,6 +706,22 @@ pre-existing tests keep rendering without crashing. This completes the "Today ta
 (Increments 62-66): daily-spendable display and a single unified entry point for both envelope
 transactions and card purchases are both now live.
 
+Increment 67 decouples envelope mode's funding-account field from the selected envelope:
+previously `QuickAddForm`'s account picker only offered a chosen envelope's own `accountIds`, and
+was hidden entirely (silently auto-resolved) whenever that envelope had exactly one linked account
+— there was no way to record a transaction against any other account. Nothing in the domain model
+actually required this restriction (`ledger.addTransaction` never checks `accountId` against
+`subEnvelopeId`'s linked accounts — the same "caller supplies both explicitly" looseness
+`settleCardPurchase`/`applyBudgetLine` already rely on), so the restriction was UI-only.
+`useEnvelopeSelection` (split out of `useEnvelopeQuickAdd` in `QuickAddForm.tsx`, both to isolate
+this change and to stay under the length cap) now offers every account as a candidate
+(`accountOptionIds`, from the full `reference.accounts` list) regardless of which envelope is
+selected — the "Account: …" picker is always shown, no longer conditionally hidden. The envelope's
+own linked account is still used as the default pre-selection when it has exactly one (unchanged
+zero-extra-taps behavior for the common case), but `pickAccount` now always lets the user override
+it to any account; picking a different envelope still resets the account back to the new
+envelope's own default. No server-side change was needed.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
