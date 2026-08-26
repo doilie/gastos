@@ -250,12 +250,12 @@ describe("QuickAddForm collapsed state and mode toggle", () => {
 // -------------------------------------------------------------------------
 
 describe("QuickAddForm envelope mode — default selection and account resolution", () => {
-  it("defaults to Spendable selected with its single account auto-resolved (no account picker)", async () => {
+  it("defaults to Spendable selected with its single linked account auto-resolved", async () => {
     await render(<QuickAddForm subEnvelopes={defaultSubEnvelopes} />);
     await openForm();
 
     expect(screen.getByText(`Envelope: ${spendableEnvelope.name} ▾`)).toBeTruthy();
-    expect(screen.queryByText(/^Account: /)).toBeNull();
+    expect(screen.getByText(`Account: ${accountA.name} ▾`)).toBeTruthy();
   });
 
   it("updates the displayed envelope name when a different envelope is picked", async () => {
@@ -267,8 +267,32 @@ describe("QuickAddForm envelope mode — default selection and account resolutio
 
     expect(screen.getByText(`Envelope: ${groceriesEnvelope.name} ▾`)).toBeTruthy();
   });
+});
 
-  it("reveals an account picker for an envelope with >1 linked accounts, and disables Save until one is picked", async () => {
+describe("QuickAddForm envelope mode — account field, independent of the envelope", () => {
+  it("always shows the account picker, offering every account regardless of the selected envelope", async () => {
+    await render(<QuickAddForm subEnvelopes={defaultSubEnvelopes} />);
+    await openForm();
+
+    // Spendable has exactly one linked account (accountA), yet the full account
+    // list — including accountB, which Spendable is NOT linked to — is offered.
+    await fireEvent.press(screen.getByText(`Account: ${accountA.name} ▾`));
+
+    expect(screen.getByText(accountA.name)).toBeTruthy();
+    expect(screen.getByText(accountB.name)).toBeTruthy();
+  });
+
+  it("lets the user override the account for a single-account envelope to any other account", async () => {
+    await render(<QuickAddForm subEnvelopes={defaultSubEnvelopes} />);
+    await openForm();
+
+    await fireEvent.press(screen.getByText(`Account: ${accountA.name} ▾`));
+    await fireEvent.press(screen.getByText(accountB.name));
+
+    expect(screen.getByText(`Account: ${accountB.name} ▾`)).toBeTruthy();
+  });
+
+  it("resets to an unpicked account (Save disabled until chosen) for an envelope with >1 linked account", async () => {
     await render(<QuickAddForm subEnvelopes={defaultSubEnvelopes} />);
     await openForm();
     await fireEvent.press(screen.getByText(`Envelope: ${spendableEnvelope.name} ▾`));
@@ -286,11 +310,21 @@ describe("QuickAddForm envelope mode — default selection and account resolutio
     expect(screen.getByText("Save")).toBeEnabled();
   });
 
-  it("never shows an account picker for an envelope with exactly 1 linked account", async () => {
+  it("resets a manually-picked account back to the new envelope's own default when the envelope changes", async () => {
     await render(<QuickAddForm subEnvelopes={defaultSubEnvelopes} />);
     await openForm();
 
-    expect(screen.queryByText(/^Account: /)).toBeNull();
+    // Override Spendable's default account to accountB.
+    await fireEvent.press(screen.getByText(`Account: ${accountA.name} ▾`));
+    await fireEvent.press(screen.getByText(accountB.name));
+    expect(screen.getByText(`Account: ${accountB.name} ▾`)).toBeTruthy();
+
+    // Switching envelopes resets the account back to the new envelope's own default —
+    // groceriesEnvelope has 2 linked accounts, so there's no single default.
+    await fireEvent.press(screen.getByText(`Envelope: ${spendableEnvelope.name} ▾`));
+    await fireEvent.press(screen.getByText(groceriesEnvelope.name));
+
+    expect(screen.getByText("Account: Choose account ▾")).toBeTruthy();
   });
 
   it("keeps Save disabled for an empty description, invalid amount, or unpicked account on a multi-account envelope", async () => {

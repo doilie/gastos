@@ -118,32 +118,29 @@ function ModeToggle({
 // ---------------------------------------------------------------------------
 
 /**
- * Envelope-mode state/mutation logic, split out of `EnvelopeModeForm` so the
- * component itself stays under the length/complexity caps (mirrors `index.tsx`'s
- * `useTransactionEdit` split). Defaults `subEnvelopeId` to Spendable (today's
- * zero-extra-taps behavior for the common case). When the selected envelope has
- * exactly one linked account, `accountId` resolves automatically; with more than one,
- * it stays `undefined` until `pickAccount` is called.
+ * Envelope + funding-account selection state, split out of `useEnvelopeQuickAdd` so
+ * neither function trips the length cap. The funding account is a field in its own
+ * right, independent of which envelope is picked — the server never requires
+ * `accountId` to be one of `subEnvelopeId`'s linked accounts (a `SubEnvelope` can span
+ * several), so the picker always offers every account. When the selected envelope has
+ * exactly one linked account, `accountId` still defaults to it (zero-extra-taps for
+ * the common case), but `pickAccount` can always override that default to any account.
+ * Defaults `subEnvelopeId` to Spendable (today's zero-extra-taps behavior).
  */
-function useEnvelopeQuickAdd(subEnvelopes: readonly SubEnvelope[], onDone: () => void) {
+function useEnvelopeSelection(
+  subEnvelopes: readonly SubEnvelope[],
+  accounts: readonly Account[],
+) {
   const [subEnvelopeId, setSubEnvelopeId] = useState<SubEnvelopeId>(SPENDABLE_ENVELOPE_ID);
   const [isEnvelopePickerOpen, setIsEnvelopePickerOpen] = useState(false);
   const [pickedAccountId, setPickedAccountId] = useState<AccountId | undefined>(undefined);
   const [isAccountPickerOpen, setIsAccountPickerOpen] = useState(false);
-  const [amount, setAmount] = useState("");
-  const [description, setDescription] = useState("");
-  const utils = trpc.useUtils();
-  const addTransaction = trpc.ledger.addTransaction.useMutation({
-    onSuccess: () => {
-      void utils.ledger.spendableBalance.invalidate();
-      void utils.ledger.transactions.invalidate();
-      onDone();
-    },
-  });
 
   const selectedEnvelope = subEnvelopes.find((subEnvelope) => subEnvelope.id === subEnvelopeId);
-  const candidateAccountIds = selectedEnvelope?.accountIds ?? [];
-  const accountId = candidateAccountIds.length === 1 ? candidateAccountIds[0] : pickedAccountId;
+  const envelopeAccountIds = selectedEnvelope?.accountIds ?? [];
+  const defaultAccountId = envelopeAccountIds.length === 1 ? envelopeAccountIds[0] : undefined;
+  const accountId = pickedAccountId ?? defaultAccountId;
+  const accountOptionIds = accounts.map((account) => account.id);
 
   function pickEnvelope(id: SubEnvelopeId) {
     setSubEnvelopeId(id);
@@ -157,45 +154,76 @@ function useEnvelopeQuickAdd(subEnvelopes: readonly SubEnvelope[], onDone: () =>
     setIsAccountPickerOpen(false);
   }
 
+  return {
+    subEnvelopeId,
+    accountOptionIds,
+    accountId,
+    isEnvelopePickerOpen,
+    isAccountPickerOpen,
+    toggleEnvelopePicker: () => setIsEnvelopePickerOpen((open) => !open),
+    toggleAccountPicker: () => setIsAccountPickerOpen((open) => !open),
+    pickEnvelope,
+    pickAccount,
+  };
+}
+
+/**
+ * Envelope-mode state/mutation logic, split out of `EnvelopeModeForm` so the
+ * component itself stays under the length/complexity caps (mirrors `index.tsx`'s
+ * `useTransactionEdit` split). Envelope/account selection itself lives in
+ * `useEnvelopeSelection` above; this layer adds the amount/description fields and the
+ * save mutation on top.
+ */
+function useEnvelopeQuickAdd(
+  subEnvelopes: readonly SubEnvelope[],
+  accounts: readonly Account[],
+  onDone: () => void,
+) {
+  const selection = useEnvelopeSelection(subEnvelopes, accounts);
+  const [amount, setAmount] = useState("");
+  const [description, setDescription] = useState("");
+  const utils = trpc.useUtils();
+  const addTransaction = trpc.ledger.addTransaction.useMutation({
+    onSuccess: () => {
+      void utils.ledger.spendableBalance.invalidate();
+      void utils.ledger.transactions.invalidate();
+      onDone();
+    },
+  });
+
   function save() {
-    if (accountId === undefined) {
+    if (selection.accountId === undefined) {
       return;
     }
     addTransaction.mutate({
       date: todayLedgerDate(),
       description: description.trim(),
       categoryId: null,
-      accountId,
-      subEnvelopeId,
+      accountId: selection.accountId,
+      subEnvelopeId: selection.subEnvelopeId,
       amount: `-${amount}`,
     });
   }
 
   return {
-    subEnvelopeId,
-    candidateAccountIds,
-    accountId,
-    isEnvelopePickerOpen,
-    isAccountPickerOpen,
+    ...selection,
     amount,
     description,
     isPending: addTransaction.isPending,
     isError: addTransaction.isError,
     setAmount,
     setDescription,
-    toggleEnvelopePicker: () => setIsEnvelopePickerOpen((open) => !open),
-    toggleAccountPicker: () => setIsAccountPickerOpen((open) => !open),
-    pickEnvelope,
-    pickAccount,
     save,
   };
 }
 
 /**
- * Envelope mode: pick a target envelope (defaulting to Spendable), resolve/pick the
- * funding account when the envelope spans more than one, then the same amount/
- * description fields the old Spendable-only quick-add used — always recorded as an
- * expense (negated on save), same as before. No income/credit entry here.
+ * Envelope mode: pick a target envelope (defaulting to Spendable) and a funding
+ * account (defaulting to the envelope's own linked account when it has exactly one,
+ * but always overridable to any account — the two fields are independent), then the
+ * same amount/description fields the old Spendable-only quick-add used — always
+ * recorded as an expense (negated on save), same as before. No income/credit entry
+ * here.
  */
 function EnvelopeModeForm({
   subEnvelopes,
@@ -208,7 +236,7 @@ function EnvelopeModeForm({
   onCancel: () => void;
   onDone: () => void;
 }) {
-  const state = useEnvelopeQuickAdd(subEnvelopes, onDone);
+  const state = useEnvelopeQuickAdd(subEnvelopes, accounts, onDone);
   const canSave =
     isValidAmount(state.amount) &&
     state.description.trim().length > 0 &&
@@ -223,16 +251,14 @@ function EnvelopeModeForm({
         onToggle={state.toggleEnvelopePicker}
         onPick={state.pickEnvelope}
       />
-      {state.candidateAccountIds.length > 1 && (
-        <AccountFieldControl
-          accounts={accounts}
-          candidateAccountIds={state.candidateAccountIds}
-          selectedAccountId={state.accountId}
-          isOpen={state.isAccountPickerOpen}
-          onToggle={state.toggleAccountPicker}
-          onPick={state.pickAccount}
-        />
-      )}
+      <AccountFieldControl
+        accounts={accounts}
+        candidateAccountIds={state.accountOptionIds}
+        selectedAccountId={state.accountId}
+        isOpen={state.isAccountPickerOpen}
+        onToggle={state.toggleAccountPicker}
+        onPick={state.pickAccount}
+      />
       <QuickAddFields
         amount={state.amount}
         description={state.description}
@@ -306,8 +332,9 @@ function EnvelopePickerOptions({
   );
 }
 
-/** "Account: {name} ▾" toggle revealing the inline single-select account list, shown
- * only when the selected envelope spans more than one linked account. */
+/** "Account: {name} ▾" toggle revealing the inline single-select account list — always
+ * shown in envelope mode, offering every account regardless of which envelope is
+ * selected (see `useEnvelopeQuickAdd`). */
 function AccountFieldControl({
   accounts,
   candidateAccountIds,
