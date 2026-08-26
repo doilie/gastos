@@ -875,6 +875,31 @@ SQL-level default, matching this schema's established convention for `isApplied`
 `apps/server`'s `start()` re-runs migrations and re-seeds automatically on next boot. This
 completes the "payday schedule selection" thread. Live-verified via curl (after the reset above).
 
+Increment 76 constrains `PaydaySchedule.paydayDaysOfMonth` to exactly one entry — a "semi-monthly"
+pay pattern is now two distinct `PaydaySchedule`s (e.g. one for the 15th, a separate one for the
+last day of the month), not one schedule configured with two days; `assertValidPaydayDaysOfMonth`
+(`packages/shared/src/reference/payday-schedule.ts`) now rejects any length other than 1, and
+`assertNoDuplicateDays` was removed as dead code (a length-1 array can't contain a duplicate).
+`paydayDaysOfMonth` stays an array (not a scalar) purely so `paydaysInMonth`'s existing per-schedule
+return shape didn't need to change — `payday-window.ts`'s window-bracketing logic was already fully
+generic over "however many candidate dates a schedule contributes per month" and needed no logic
+changes, just doc-comment updates (its own tests, however, needed a full rewrite: the old
+multi-day-per-schedule fixtures/scenarios are no longer constructible). `budget.createPaydaySchedule`/
+`updatePaydaySchedule`'s Zod input schemas tightened from `.min(1)` to `.length(1)`, surfacing a
+multi-day array as 400/`BAD_REQUEST` rather than reaching the domain layer. The seed data's old
+single "Semi-monthly" schedule (`[15, 31]`) is now two seeded schedules (`payday-schedule-default`
+still on the 15th and still `isPrimary: true`, plus a new `payday-schedule-default-month-end` on the
+31st). The Budget tab's payday-schedule form (`AddPaydayScheduleFields`, shared by create and edit)
+drops its comma-separated "Payday days of month" input for a single "Payday day of month (1-31)"
+field — `parsePaydayDaysOfMonth` was renamed `parsePaydayDayInput` and simplified accordingly, and
+the create/edit hooks' `daysInput` state is now `dayInput` throughout.
+**A known, deliberately out-of-scope consequence**: `index.tsx`'s Today tab still computes its
+daily-spendable figure from only the ONE schedule marked `isPrimary` (Increment 75) — for someone
+who now genuinely has two paydays a month split across two schedules, marking only one primary
+means the runway calc has no visibility into the other schedule's payday, understating how soon the
+balance actually gets replenished. Fixing this (e.g. considering every schedule, or every
+schedule the user opts in) is unscoped follow-up work, not addressed here.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
