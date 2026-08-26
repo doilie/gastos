@@ -742,6 +742,25 @@ out-of-range payday day, empty description, non-positive amount) propagate unwra
 follows. Live-verified via curl. No UI wiring yet — Update and Archive/Delete for both entities,
 plus "+ Add" forms on the Budget tab, remain separate, later, not-yet-scoped increments.
 
+Increment 69 wires that UI: the Budget tab (`apps/mobile/app/(tabs)/budget.tsx`) gets a top-level
+"+ Add payday schedule" form and a "+ Add budget line" form, mirroring `envelopes.tsx`'s
+`AddEnvelopeGroupForm`/`AddSubEnvelopeForm` collapsed-button pattern (this screen had no "+ Add"
+forms of any kind before this, unlike every other tab). The payday-days field is a single
+comma-separated text input (e.g. `"15, 31"`), parsed client-side (`parsePaydayDaysOfMonth`) and
+validated (`isValidPaydayDaysOfMonth`, 1–31 range) before Save enables — no per-day add/remove
+control was built, matching this app's established "narrower UI than the API" pattern. The budget
+line form adds `SubEnvelopeFieldControl`, a local "Sub-envelope: {name} ▾" single-select toggle
+(unarchived only) mirroring `QuickAddForm.tsx`'s own `EnvelopeFieldControl` — duplicated rather
+than shared, consistent with this codebase's per-screen component convention; `budgetPeriod` is
+still never collected client-side (the server derives it, per Increment 68). The amount field
+validates as a positive-only magnitude (`isValidPositiveAmount`, distinct from
+`QuickAddForm`/`index.tsx`'s signed-amount validators, since a `BudgetLine` amount is never
+negated). A new `FormSaveCancelButtons` component factors out the Cancel/Save button row shared by
+both forms. This completes the "Budget CRUD" thread's Create half end-to-end (server + UI); Update
+and Archive/Delete for `PaydaySchedule`/`BudgetLine` remain separate, later, not-yet-scoped
+increments. Verified via the mobile Jest/RNTL suite (30 new/updated tests in `budget.test.tsx`) and
+a production build; not manually driven in a live browser in this session.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
