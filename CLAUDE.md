@@ -851,6 +851,30 @@ second half — replacing `index.tsx`'s `paydaySchedules.data[0]` (today's Today
 calc always uses whichever schedule happens to be first) with an explicit "primary schedule"
 designation — is a separate, following increment.
 
+Increment 75 completes that second half: `PaydaySchedule` gains a persisted `isPrimary: boolean`
+column (`packages/db`'s `payday_schedules` table, migration `0003_smooth_scarecrow.sql`) —
+`createPaydaySchedule` always sets it `false` (mirroring how `createAccount` always sets
+`isArchived: false`, never a create-time input), and two new setters,
+`markPaydaySchedulePrimary`/`unmarkPaydaySchedulePrimary`, mirror `archiveAccount`/
+`unarchiveAccount`'s shape rather than folding into `updatePaydaySchedule` (which still never
+touches `isPrimary`, same as `updateAccount` never touching `isArchived`). The new
+`budget.setPaydaySchedulePrimary` mutation does the "at most one primary" bookkeeping server-side
+in one request — it marks the target schedule primary AND unmarks whichever schedule previously
+held it, if any — rather than requiring the client to issue two separate, non-atomic calls.
+`index.tsx`'s Today tab now computes its daily-spendable figure from
+`paydaySchedules.data.find((s) => s.isPrimary) ?? paydaySchedules.data[0]` — preferring the
+explicitly-designated schedule, falling back to list-position only when nothing is marked yet (the
+seed data marks the one seeded schedule primary, so this fallback never actually triggers against
+seeded data). The Budget tab's `PaydayScheduleRow` gets a "Set primary" control (hidden, replaced
+by a `" (primary)"` name suffix, once already primary — the same "no button once true" pattern
+`BudgetLineApplyControls`'s `isApplied` label already established). Applying this migration to a
+local dev Postgres that already has `payday_schedules` rows requires resetting the docker-compose
+volume first (`docker compose down -v && docker compose up -d`) — the column is `NOT NULL` with no
+SQL-level default, matching this schema's established convention for `isApplied`/`isArchived`
+(Increment 53's own note applies here too), so pre-existing rows would otherwise violate it;
+`apps/server`'s `start()` re-runs migrations and re-seeds automatically on next boot. This
+completes the "payday schedule selection" thread. Live-verified via curl (after the reset above).
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
