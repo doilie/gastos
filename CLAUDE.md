@@ -722,6 +722,26 @@ zero-extra-taps behavior for the common case), but `pickAccount` now always lets
 it to any account; picking a different envelope still resets the account back to the new
 envelope's own default. No server-side change was needed.
 
+Increment 68 begins the "Budget CRUD" thread (`req/what-i-want.txt`: "monthly pay day budget
+crud", "budget in monthly pay day crud" — i.e. `PaydaySchedule` and `BudgetLine`), following the
+same phased Create-first pattern the "More tab CRUD"/"Envelope CRUD" threads used. Until this
+increment, the `budget` router was read-only (`paydaySchedules`/`budgetLines` queries) plus the
+apply-only `applyBudgetLine(s)` mutations — there was no way to mint a new `PaydaySchedule` or
+`BudgetLine` at all, even though both factories (`createPaydaySchedule`, `createBudgetLine`)
+already existed in `packages/shared`. `budget.createPaydaySchedule` wraps the factory directly
+(input `{name, paydayDaysOfMonth}`); `budget.createBudgetLine` wraps its factory too, but derives
+`budgetPeriod` from the given `paydayDate` via `budgetPeriodContaining` rather than taking it as
+caller input — the domain factory itself doesn't require the two to agree (a late-month payday can
+reasonably fund the following month's period), but this entry point has no product need for that
+flexibility yet, so inferring it is one fewer field the caller has to get right; `subEnvelopeId` is
+validated to exist (`NOT_FOUND` otherwise), matching every other create mutation's convention.
+`apps/server/src/domain-store.ts` gained `addPaydaySchedule`/`addBudgetLine` (plain inserts,
+mirroring `addCardPurchase`'s shape). Both mutations' domain-validation failures (empty name,
+out-of-range payday day, empty description, non-positive amount) propagate unwrapped as
+500/`INTERNAL_SERVER_ERROR`, the same convention every other create mutation in this codebase
+follows. Live-verified via curl. No UI wiring yet — Update and Archive/Delete for both entities,
+plus "+ Add" forms on the Budget tab, remain separate, later, not-yet-scoped increments.
+
 `apps/server` registers `@fastify/cors` (`{ origin: true }`, permissive — no deployment/auth
 exists yet) in `index.ts`, before the tRPC plugin. Without it, `apps/mobile`'s web build (a browser
 context) silently fails to read any API response — `curl` doesn't enforce CORS so it looks fine,
