@@ -152,12 +152,17 @@ describe("budget router", () => {
 });
 
 // NOTE ON FIXTURE SCARCITY: budget.applyBudgetLine/applyBudgetLines genuinely
-// mutate the shared in-memory store (a singleton array, same as
-// ledger.addTransaction — see store.ts's `transactions`), AND, since the
-// isApplied fix, a seeded BudgetLine can only ever be *successfully* applied
-// ONCE for the lifetime of the store — re-applying now correctly rejects.
-// There is no create-a-BudgetLine mutation, so this file has exactly two real
-// BudgetLine fixtures for its entire run
+// mutate the shared store (the same real, testcontainers-backed Postgres this
+// whole file shares), AND, since the isApplied fix, a seeded BudgetLine can
+// only ever be *successfully* applied ONCE for the lifetime of the store —
+// re-applying now correctly rejects. `budget.createBudgetLine` exists (see
+// the dedicated "budget.createBudgetLine" describe blocks at the end of this
+// file, placed there deliberately — any line they create would otherwise
+// inflate the hardcoded skippedLines count the final
+// "applyBudgetLines — success" test below asserts), but every test in the
+// describe blocks immediately below still targets the two ORIGINAL seeded
+// fixtures, so this file has exactly two real BudgetLine fixtures for the
+// entire apply-lifecycle portion of its run
 // ("budget-line-groceries-fund-august-15" and
 // "budget-line-spendable-august-15"). The describe blocks below are ordered
 // and budgeted deliberately:
@@ -383,6 +388,157 @@ describe("budget.applyBudgetLines — success and already-applied auto-skip", ()
     expect(groceriesTransactions).toHaveLength(1);
     expect(spendableTransactions).toHaveLength(1);
     expect(spendableTransactions[0]?.id).toBe(applied?.id);
+    await app.close();
+  });
+});
+
+// The create-mutation tests below are placed deliberately AFTER every
+// apply-lifecycle describe block above: budget.applyBudgetLines re-fetches
+// every seeded BudgetLine and reports whichever ones aren't in its
+// `applications` list as skipped, so any line created before those tests run
+// would inflate their hardcoded skippedLines-count assertions (see the NOTE
+// ON FIXTURE SCARCITY comment above). Nothing below this point creates a
+// BudgetLine that any earlier test could observe.
+
+interface CreatedPaydaySchedule {
+  id: string;
+  name: string;
+  paydayDaysOfMonth: number[];
+}
+
+describe("budget.createPaydaySchedule — success", () => {
+  it("creates a payday schedule, round-tripping name/paydayDaysOfMonth", async () => {
+    const app = buildServer();
+    const data = await mutateBudget<CreatedPaydaySchedule>(app, "createPaydaySchedule", {
+      name: "Monthly",
+      paydayDaysOfMonth: [1],
+    });
+
+    expect(typeof data.id).toBe("string");
+    expect(data.id.length).toBeGreaterThan(0);
+    expect(data.name).toBe("Monthly");
+    expect(data.paydayDaysOfMonth).toEqual([1]);
+    await app.close();
+  });
+
+  it("persists the created schedule, visible in a fresh budget.paydaySchedules request", async () => {
+    const app = buildServer();
+    const created = await mutateBudget<CreatedPaydaySchedule>(app, "createPaydaySchedule", {
+      name: "Persisted schedule",
+      paydayDaysOfMonth: [10, 25],
+    });
+
+    const schedules = await queryBudget<CreatedPaydaySchedule[]>(app, "paydaySchedules");
+    expect(schedules.find((schedule) => schedule.id === created.id)).toEqual(created);
+    await app.close();
+  });
+});
+
+describe("budget.createPaydaySchedule — domain validation errors (unwrapped Error, surfaces as 500)", () => {
+  it("rejects an empty/whitespace-only name", async () => {
+    const app = buildServer();
+    const { statusCode } = await mutateBudgetExpectingError(app, "createPaydaySchedule", {
+      name: "   ",
+      paydayDaysOfMonth: [1],
+    });
+    expect(statusCode).toBeGreaterThanOrEqual(400);
+    await app.close();
+  });
+
+  it("rejects an out-of-range payday day", async () => {
+    const app = buildServer();
+    const { statusCode } = await mutateBudgetExpectingError(app, "createPaydaySchedule", {
+      name: "Bad day",
+      paydayDaysOfMonth: [32],
+    });
+    expect(statusCode).toBeGreaterThanOrEqual(400);
+    await app.close();
+  });
+});
+
+interface CreatedBudgetLine {
+  id: string;
+  budgetPeriod: { year: number; month: number };
+  paydayDate: string;
+  subEnvelopeId: string;
+  amount: number;
+  description: string;
+  isApplied: boolean;
+}
+
+describe("budget.createBudgetLine — success", () => {
+  it("creates a budget line, deriving budgetPeriod from paydayDate, with isApplied false", async () => {
+    const app = buildServer();
+    const data = await mutateBudget<CreatedBudgetLine>(app, "createBudgetLine", {
+      paydayDate: "2026-09-15",
+      subEnvelopeId: "sub-envelope-groceries-fund",
+      amount: "300.00",
+      description: "September groceries",
+    });
+
+    expect(typeof data.id).toBe("string");
+    expect(data.id.length).toBeGreaterThan(0);
+    expect(data.budgetPeriod).toEqual({ year: 2026, month: 9 });
+    expect(data.paydayDate).toBe("2026-09-15");
+    expect(data.subEnvelopeId).toBe("sub-envelope-groceries-fund");
+    expect(data.amount).toBe(30000);
+    expect(data.description).toBe("September groceries");
+    expect(data.isApplied).toBe(false);
+    await app.close();
+  });
+
+  it("persists the created line, visible in a fresh budget.budgetLines request", async () => {
+    const app = buildServer();
+    const created = await mutateBudget<CreatedBudgetLine>(app, "createBudgetLine", {
+      paydayDate: "2026-09-30",
+      subEnvelopeId: "sub-envelope-groceries-fund",
+      amount: "50.00",
+      description: "Persisted line",
+    });
+
+    const lines = await queryBudget<CreatedBudgetLine[]>(app, "budgetLines");
+    expect(lines.find((line) => line.id === created.id)).toEqual(created);
+    await app.close();
+  });
+});
+
+describe("budget.createBudgetLine — NOT_FOUND validation error", () => {
+  it("returns NOT_FOUND (404) for a well-formed but nonexistent subEnvelopeId", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateBudgetExpectingError(app, "createBudgetLine", {
+      paydayDate: "2026-09-15",
+      subEnvelopeId: "sub-envelope-does-not-exist",
+      amount: "50.00",
+      description: "Nope",
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+});
+
+describe("budget.createBudgetLine — domain validation errors (unwrapped Error, surfaces as 500)", () => {
+  it("rejects an empty/whitespace-only description", async () => {
+    const app = buildServer();
+    const { statusCode } = await mutateBudgetExpectingError(app, "createBudgetLine", {
+      paydayDate: "2026-09-15",
+      subEnvelopeId: "sub-envelope-groceries-fund",
+      amount: "50.00",
+      description: "   ",
+    });
+    expect(statusCode).toBeGreaterThanOrEqual(400);
+    await app.close();
+  });
+
+  it("rejects a zero amount", async () => {
+    const app = buildServer();
+    const { statusCode } = await mutateBudgetExpectingError(app, "createBudgetLine", {
+      paydayDate: "2026-09-15",
+      subEnvelopeId: "sub-envelope-groceries-fund",
+      amount: "0.00",
+      description: "Zero amount",
+    });
+    expect(statusCode).toBeGreaterThanOrEqual(400);
     await app.close();
   });
 });

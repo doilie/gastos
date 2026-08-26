@@ -8,8 +8,17 @@ import {
   type BudgetLine,
   type BudgetLineId,
   budgetLineIdFromString,
+  budgetPeriodContaining,
+  createBudgetLine as createBudgetLineInDomain,
+  createPaydaySchedule as createPaydayScheduleInDomain,
+  ledgerDateFromString,
   markBudgetLineApplied,
+  parseCents,
+  type PaydaySchedule,
+  paydayScheduleIdFromString,
   type SubEnvelope,
+  type SubEnvelopeId,
+  subEnvelopeIdFromString,
   transactionIdFromString,
 } from "@gastos/shared";
 import { TRPCError } from "@trpc/server";
@@ -18,6 +27,8 @@ import { z } from "zod";
 
 import { publicProcedure, router } from "../trpc";
 import {
+  addBudgetLine,
+  addPaydaySchedule,
   addTransaction,
   getAccounts,
   getBudgetLines,
@@ -158,7 +169,10 @@ function buildApplyResolver(
 }
 
 /**
- * Read-only Budget queries (PaydaySchedule/BudgetLine) plus two mutations:
+ * Read-only Budget queries (PaydaySchedule/BudgetLine) plus `createPaydaySchedule`/
+ * `createBudgetLine` (the "Budget CRUD" thread's Create half — Update/Archive/Delete
+ * are separate, later, not-yet-scoped increments, same sequencing the "More tab CRUD"/
+ * "Envelope CRUD" threads followed) and two apply mutations:
  * `applyBudgetLine` applies a single seeded `BudgetLine` into the ledger
  * (mirroring `ledger.addTransaction`'s validation style), and
  * `applyBudgetLines` applies a caller-chosen subset of every seeded
@@ -174,10 +188,53 @@ function buildApplyResolver(
  * file's other domain validation failures) for the single mutation, and the
  * batch mutation's underlying `applyBudgetLinesToLedger` auto-skips it into
  * `skippedLines` instead of erroring or double-posting.
+ *
+ * `createBudgetLine` derives `budgetPeriod` from the given `paydayDate` via
+ * `budgetPeriodContaining` rather than taking it as caller input — the domain factory
+ * itself doesn't require the two to agree (a late-month payday can reasonably fund the
+ * following month's period), but this creation entry point has no product need for
+ * that flexibility yet, so keeping it inferred is one fewer field for the caller to
+ * get right.
  */
 export const budgetRouter = router({
   paydaySchedules: publicProcedure.query(async () => getPaydaySchedules()),
   budgetLines: publicProcedure.query(async () => getBudgetLines()),
+  createPaydaySchedule: publicProcedure
+    .input(z.object({ name: z.string(), paydayDaysOfMonth: z.array(z.number().int()).min(1) }))
+    .mutation(async ({ input }) => {
+      const schedule: PaydaySchedule = createPaydayScheduleInDomain({
+        id: paydayScheduleIdFromString(randomUUID()),
+        name: input.name,
+        paydayDaysOfMonth: input.paydayDaysOfMonth,
+      });
+      await addPaydaySchedule(schedule);
+      return schedule;
+    }),
+  createBudgetLine: publicProcedure
+    .input(
+      z.object({
+        paydayDate: z.string(),
+        subEnvelopeId: z.string(),
+        amount: z.string(),
+        description: z.string(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const subEnvelopeId: SubEnvelopeId = subEnvelopeIdFromString(input.subEnvelopeId);
+      assertIdExists(await getSubEnvelopes(), subEnvelopeId, `Sub-envelope "${subEnvelopeId}" not found`);
+
+      const paydayDate = ledgerDateFromString(input.paydayDate);
+      const line: BudgetLine = createBudgetLineInDomain({
+        id: budgetLineIdFromString(randomUUID()),
+        budgetPeriod: budgetPeriodContaining(paydayDate),
+        paydayDate,
+        subEnvelopeId,
+        amount: parseCents(input.amount),
+        description: input.description,
+      });
+      await addBudgetLine(line);
+      return line;
+    }),
   applyBudgetLine: publicProcedure
     .input(z.object({ budgetLineId: z.string(), accountId: z.string() }))
     .mutation(async ({ input }) => {

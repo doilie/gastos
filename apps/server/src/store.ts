@@ -33,8 +33,10 @@ export const { getTransactions, addTransaction, replaceTransaction, deleteTransa
 export const {
   getCreditCards,
   getPaydaySchedules,
+  addPaydaySchedule,
   getCardPurchases,
   addCardPurchase,
   getBudgetLines,
+  addBudgetLine,
   replaceBudgetLine,
 } = domainStore;

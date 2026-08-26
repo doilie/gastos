@@ -4,11 +4,9 @@
 // and `PaydaySchedule` are schema-wise Reference-layer tables, but
 // apps/server/src/store.ts has always grouped them alongside
 // CardPurchase/BudgetLine as "not yet DB-backed", so this file keeps doing
-// the same rather than folding them into reference-store.ts. `addCardPurchase`
-// is the first `add`/`replace`-style mutation for any of these four types —
-// wired up for the new `cards.createCardPurchase` tRPC mutation; there is
-// still no `add`/`replace` for CreditCard/PaydaySchedule, since no mutation
-// for those exists in this app yet.
+// the same rather than folding them into reference-store.ts. There is still
+// no `add`/`replace` for `CreditCard` — no mutation for it exists in this
+// app yet.
 
 import { budgetLines, cardPurchases, creditCards, paydaySchedules, type Db } from "@gastos/db";
 import {
@@ -37,9 +35,11 @@ import { eq } from "drizzle-orm";
 export interface DomainStore {
   getCreditCards(): Promise<readonly CreditCard[]>;
   getPaydaySchedules(): Promise<readonly PaydaySchedule[]>;
+  addPaydaySchedule(schedule: PaydaySchedule): Promise<void>;
   getCardPurchases(): Promise<readonly CardPurchase[]>;
   addCardPurchase(purchase: CardPurchase): Promise<void>;
   getBudgetLines(): Promise<readonly BudgetLine[]>;
+  addBudgetLine(line: BudgetLine): Promise<void>;
   replaceBudgetLine(line: BudgetLine): Promise<void>;
 }
 
@@ -69,6 +69,14 @@ function toPaydaySchedule(row: typeof paydaySchedules.$inferSelect): PaydaySched
 async function getPaydaySchedulesImpl(db: Db): Promise<readonly PaydaySchedule[]> {
   const rows = await db.select().from(paydaySchedules);
   return rows.map(toPaydaySchedule);
+}
+
+async function addPaydayScheduleImpl(db: Db, schedule: PaydaySchedule): Promise<void> {
+  await db.insert(paydaySchedules).values({
+    id: schedule.id,
+    name: schedule.name,
+    paydayDaysOfMonth: [...schedule.paydayDaysOfMonth],
+  });
 }
 
 /**
@@ -174,6 +182,19 @@ async function getBudgetLinesImpl(db: Db): Promise<readonly BudgetLine[]> {
   return rows.map(toBudgetLine);
 }
 
+async function addBudgetLineImpl(db: Db, line: BudgetLine): Promise<void> {
+  await db.insert(budgetLines).values({
+    id: line.id,
+    budgetPeriodYear: line.budgetPeriod.year,
+    budgetPeriodMonth: line.budgetPeriod.month,
+    paydayDate: line.paydayDate,
+    subEnvelopeId: line.subEnvelopeId,
+    amount: line.amount,
+    description: line.description,
+    isApplied: line.isApplied,
+  });
+}
+
 async function replaceBudgetLineImpl(db: Db, line: BudgetLine): Promise<void> {
   await db
     .update(budgetLines)
@@ -198,9 +219,11 @@ export function createDomainStore(db: Db): DomainStore {
   return {
     getCreditCards: () => getCreditCardsImpl(db),
     getPaydaySchedules: () => getPaydaySchedulesImpl(db),
+    addPaydaySchedule: (schedule) => addPaydayScheduleImpl(db, schedule),
     getCardPurchases: () => getCardPurchasesImpl(db),
     addCardPurchase: (purchase) => addCardPurchaseImpl(db, purchase),
     getBudgetLines: () => getBudgetLinesImpl(db),
+    addBudgetLine: (line) => addBudgetLineImpl(db, line),
     replaceBudgetLine: (line) => replaceBudgetLineImpl(db, line),
   };
 }
