@@ -20,6 +20,8 @@ import {
   type SubEnvelopeId,
   subEnvelopeIdFromString,
   transactionIdFromString,
+  updateBudgetLine as updateBudgetLineInDomain,
+  updatePaydaySchedule as updatePaydayScheduleInDomain,
 } from "@gastos/shared";
 import { TRPCError } from "@trpc/server";
 import { randomUUID } from "node:crypto";
@@ -35,6 +37,7 @@ import {
   getPaydaySchedules,
   getSubEnvelopes,
   replaceBudgetLine,
+  replacePaydaySchedule,
 } from "../store";
 
 /**
@@ -104,6 +107,43 @@ function resolveBudgetLineAndSubEnvelope(
 }
 
 /**
+ * Parses/validates `updateBudgetLine`'s optional input fields into the shape
+ * `updateBudgetLine` (the `@gastos/shared` domain function) expects —
+ * validates `subEnvelopeId` exists (`NOT_FOUND` otherwise), and derives
+ * `budgetPeriod` from `paydayDate` via `budgetPeriodContaining` whenever
+ * `paydayDate` is part of the update, mirroring `createBudgetLine`'s own
+ * derivation. Factored out to keep the `updateBudgetLine` mutation itself
+ * under the length/complexity caps.
+ */
+function resolveBudgetLineUpdates(
+  input: {
+    paydayDate?: string | undefined;
+    subEnvelopeId?: string | undefined;
+    amount?: string | undefined;
+    description?: string | undefined;
+  },
+  subEnvelopes: readonly SubEnvelope[],
+): Parameters<typeof updateBudgetLineInDomain>[1] {
+  const paydayDate =
+    input.paydayDate === undefined ? undefined : ledgerDateFromString(input.paydayDate);
+
+  let subEnvelopeId: SubEnvelopeId | undefined;
+  if (input.subEnvelopeId !== undefined) {
+    subEnvelopeId = subEnvelopeIdFromString(input.subEnvelopeId);
+    assertIdExists(subEnvelopes, subEnvelopeId, `Sub-envelope "${subEnvelopeId}" not found`);
+  }
+
+  return {
+    ...(paydayDate === undefined
+      ? {}
+      : { paydayDate, budgetPeriod: budgetPeriodContaining(paydayDate) }),
+    ...(subEnvelopeId === undefined ? {} : { subEnvelopeId }),
+    ...(input.amount === undefined ? {} : { amount: parseCents(input.amount) }),
+    ...(input.description === undefined ? {} : { description: input.description }),
+  };
+}
+
+/**
  * Validates every `{ budgetLineId, accountId }` pair in `applications`
  * against the seeded stores (`NOT_FOUND` for either miss), and builds a
  * `budgetLineId -> accountId` lookup for `buildApplyResolver` to consult.
@@ -170,10 +210,14 @@ function buildApplyResolver(
 
 /**
  * Read-only Budget queries (PaydaySchedule/BudgetLine) plus `createPaydaySchedule`/
- * `createBudgetLine` (the "Budget CRUD" thread's Create half — Update/Archive/Delete
- * are separate, later, not-yet-scoped increments, same sequencing the "More tab CRUD"/
- * "Envelope CRUD" threads followed) and two apply mutations:
- * `applyBudgetLine` applies a single seeded `BudgetLine` into the ledger
+ * `createBudgetLine` and `updatePaydaySchedule`/`updateBudgetLine` (the "Budget CRUD"
+ * thread's Create+Update — Archive/Delete for both entities is a separate, later,
+ * not-yet-scoped increment, same sequencing the "More tab CRUD"/"Envelope CRUD" threads
+ * followed) plus two apply mutations: `updateBudgetLine` rejects (unwrapped `Error`,
+ * surfacing as 500) updating an already-applied line — once a line has been turned
+ * into a real ledger `Transaction`, editing the allocation it describes would silently
+ * desync the two records, the same invariant `applyBudgetLine` itself already protects
+ * against double-posting. `applyBudgetLine` applies a single seeded `BudgetLine` into the ledger
  * (mirroring `ledger.addTransaction`'s validation style), and
  * `applyBudgetLines` applies a caller-chosen subset of every seeded
  * `BudgetLine` in one call — mirroring the shared `applyBudgetLines`/
@@ -234,6 +278,56 @@ export const budgetRouter = router({
       });
       await addBudgetLine(line);
       return line;
+    }),
+  updatePaydaySchedule: publicProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        name: z.string().optional(),
+        paydayDaysOfMonth: z.array(z.number().int()).min(1).optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const id = paydayScheduleIdFromString(input.id);
+      const schedules = await getPaydaySchedules();
+      const schedule = schedules.find((candidate) => candidate.id === id);
+      if (schedule === undefined) {
+        throw new TRPCError({ code: "NOT_FOUND", message: `Payday schedule "${id}" not found` });
+      }
+
+      const updated = updatePaydayScheduleInDomain(schedule, {
+        ...(input.name === undefined ? {} : { name: input.name }),
+        ...(input.paydayDaysOfMonth === undefined
+          ? {}
+          : { paydayDaysOfMonth: input.paydayDaysOfMonth }),
+      });
+      await replacePaydaySchedule(updated);
+      return updated;
+    }),
+  updateBudgetLine: publicProcedure
+    .input(
+      z.object({
+        id: z.string(),
+        paydayDate: z.string().optional(),
+        subEnvelopeId: z.string().optional(),
+        amount: z.string().optional(),
+        description: z.string().optional(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const id = budgetLineIdFromString(input.id);
+      const [budgetLines, subEnvelopes] = await Promise.all([
+        getBudgetLines(),
+        getSubEnvelopes(),
+      ]);
+      const line = budgetLines.find((candidate) => candidate.id === id);
+      if (line === undefined) {
+        throw new TRPCError({ code: "NOT_FOUND", message: `BudgetLine "${id}" not found` });
+      }
+
+      const updated = updateBudgetLineInDomain(line, resolveBudgetLineUpdates(input, subEnvelopes));
+      await replaceBudgetLine(updated);
+      return updated;
     }),
   applyBudgetLine: publicProcedure
     .input(z.object({ budgetLineId: z.string(), accountId: z.string() }))

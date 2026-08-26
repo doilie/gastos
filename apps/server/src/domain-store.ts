@@ -36,6 +36,7 @@ export interface DomainStore {
   getCreditCards(): Promise<readonly CreditCard[]>;
   getPaydaySchedules(): Promise<readonly PaydaySchedule[]>;
   addPaydaySchedule(schedule: PaydaySchedule): Promise<void>;
+  replacePaydaySchedule(schedule: PaydaySchedule): Promise<void>;
   getCardPurchases(): Promise<readonly CardPurchase[]>;
   addCardPurchase(purchase: CardPurchase): Promise<void>;
   getBudgetLines(): Promise<readonly BudgetLine[]>;
@@ -77,6 +78,13 @@ async function addPaydayScheduleImpl(db: Db, schedule: PaydaySchedule): Promise<
     name: schedule.name,
     paydayDaysOfMonth: [...schedule.paydayDaysOfMonth],
   });
+}
+
+async function replacePaydayScheduleImpl(db: Db, schedule: PaydaySchedule): Promise<void> {
+  await db
+    .update(paydaySchedules)
+    .set({ name: schedule.name, paydayDaysOfMonth: [...schedule.paydayDaysOfMonth] })
+    .where(eq(paydaySchedules.id, schedule.id));
 }
 
 /**
@@ -220,6 +228,7 @@ export function createDomainStore(db: Db): DomainStore {
     getCreditCards: () => getCreditCardsImpl(db),
     getPaydaySchedules: () => getPaydaySchedulesImpl(db),
     addPaydaySchedule: (schedule) => addPaydayScheduleImpl(db, schedule),
+    replacePaydaySchedule: (schedule) => replacePaydayScheduleImpl(db, schedule),
     getCardPurchases: () => getCardPurchasesImpl(db),
     addCardPurchase: (purchase) => addCardPurchaseImpl(db, purchase),
     getBudgetLines: () => getBudgetLinesImpl(db),

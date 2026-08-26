@@ -16,6 +16,7 @@ import {
   budgetLineIdFromString,
   createBudgetLine,
   markBudgetLineApplied,
+  updateBudgetLine,
   type ApplyBudgetLineInput,
   type BudgetLine,
 } from "./budget-line";
@@ -128,6 +129,81 @@ describe("markBudgetLineApplied", () => {
     const applied = markBudgetLineApplied(line);
     const appliedAgain = markBudgetLineApplied(applied);
     expect(appliedAgain).toEqual(applied);
+  });
+});
+
+describe("updateBudgetLine", () => {
+  it("applies a partial update, leaving unspecified fields unchanged", () => {
+    const line = createBudgetLine(baseInput());
+    const updated = updateBudgetLine(line, { description: "Updated rent" });
+    expect(updated).toEqual({ ...line, description: "Updated rent" });
+  });
+
+  it("applies every updatable field at once when all are given", () => {
+    const line = createBudgetLine(baseInput());
+    const newPeriod: BudgetPeriod = { year: 2024, month: 6 };
+    const newPaydayDate = ledgerDateFromString("2024-06-15");
+    const newSubEnvelopeId = subEnvelopeIdFromString("sub-2");
+    const updated = updateBudgetLine(line, {
+      budgetPeriod: newPeriod,
+      paydayDate: newPaydayDate,
+      subEnvelopeId: newSubEnvelopeId,
+      amount: centsFromInt(2500),
+      description: "New rent",
+    });
+    expect(updated).toEqual({
+      ...line,
+      budgetPeriod: newPeriod,
+      paydayDate: newPaydayDate,
+      subEnvelopeId: newSubEnvelopeId,
+      amount: centsFromInt(2500),
+      description: "New rent",
+    });
+  });
+
+  it("never touches id or isApplied", () => {
+    const line = createBudgetLine(baseInput());
+    const updated = updateBudgetLine(line, { description: "Updated rent" });
+    expect(updated.id).toBe(line.id);
+    expect(updated.isApplied).toBe(false);
+  });
+
+  it("trims a provided description", () => {
+    const line = createBudgetLine(baseInput());
+    const updated = updateBudgetLine(line, { description: "  Updated rent  " });
+    expect(updated.description).toBe("Updated rent");
+  });
+
+  it("does not auto-derive budgetPeriod from a new paydayDate — the caller must supply both explicitly", () => {
+    const line = createBudgetLine(baseInput());
+    const updated = updateBudgetLine(line, { paydayDate: ledgerDateFromString("2024-06-15") });
+    expect(updated.budgetPeriod).toEqual(budgetPeriod);
+    expect(updated.paydayDate).toBe("2024-06-15");
+  });
+});
+
+describe("updateBudgetLine validation/rejection", () => {
+  it.each([["empty string", ""], ["whitespace-only", "   "]])(
+    "throws when description is %s",
+    (_label, description) => {
+      const line = createBudgetLine(baseInput());
+      expect(() => updateBudgetLine(line, { description })).toThrow();
+    },
+  );
+
+  it("throws when amount is zero", () => {
+    const line = createBudgetLine(baseInput());
+    expect(() => updateBudgetLine(line, { amount: centsFromInt(0) })).toThrow();
+  });
+
+  it("throws when amount is negative", () => {
+    const line = createBudgetLine(baseInput());
+    expect(() => updateBudgetLine(line, { amount: centsFromInt(-100) })).toThrow();
+  });
+
+  it("throws when the line is already applied, regardless of what's being updated", () => {
+    const line = markBudgetLineApplied(createBudgetLine(baseInput()));
+    expect(() => updateBudgetLine(line, { description: "Updated rent" })).toThrow();
   });
 });
 

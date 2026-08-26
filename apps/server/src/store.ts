@@ -34,6 +34,7 @@ export const {
   getCreditCards,
   getPaydaySchedules,
   addPaydaySchedule,
+  replacePaydaySchedule,
   getCardPurchases,
   addCardPurchase,
   getBudgetLines,

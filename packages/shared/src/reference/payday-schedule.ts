@@ -86,6 +86,31 @@ export function createPaydaySchedule(input: {
   };
 }
 
+/**
+ * Applies a partial `name`/`paydayDaysOfMonth` update to `schedule`,
+ * validating each the same way `createPaydaySchedule` does when provided.
+ * `id` is always carried over unchanged.
+ */
+export function updatePaydaySchedule(
+  schedule: PaydaySchedule,
+  updates: { name?: string; paydayDaysOfMonth?: readonly number[] },
+): PaydaySchedule {
+  return {
+    ...schedule,
+    ...(updates.name === undefined
+      ? {}
+      : { name: assertNonEmptyName(updates.name, "updatePaydaySchedule") }),
+    ...(updates.paydayDaysOfMonth === undefined
+      ? {}
+      : {
+          paydayDaysOfMonth: assertValidPaydayDaysOfMonth(
+            updates.paydayDaysOfMonth,
+            "updatePaydaySchedule",
+          ),
+        }),
+  };
+}
+
 /** Number of days in `month` (1-indexed, 1 = January) of `year`. */
 function daysInMonth(year: number, month: number): number {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();

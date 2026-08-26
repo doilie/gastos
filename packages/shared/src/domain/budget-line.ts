@@ -104,6 +104,43 @@ export function markBudgetLineApplied(line: BudgetLine): BudgetLine {
   return { ...line, isApplied: true };
 }
 
+/**
+ * Applies a partial update to `line`'s allocation fields
+ * (`budgetPeriod`/`paydayDate`/`subEnvelopeId`/`amount`/`description`),
+ * validating `amount`/`description` the same way `createBudgetLine` does
+ * when provided. `id` and `isApplied` are never touched by this function —
+ * `isApplied` only ever changes via `markBudgetLineApplied`. Rejects
+ * (throws) when `line.isApplied` is already `true`: once a line has been
+ * turned into a real ledger `Transaction`, editing the allocation it
+ * describes would silently desync the two records, with no re-sync
+ * mechanism to fix it — the same already-applied guard `applyBudgetLine`
+ * enforces for double-posting.
+ */
+export function updateBudgetLine(
+  line: BudgetLine,
+  updates: {
+    budgetPeriod?: BudgetPeriod;
+    paydayDate?: LedgerDate;
+    subEnvelopeId?: SubEnvelopeId;
+    amount?: Cents;
+    description?: string;
+  },
+): BudgetLine {
+  assertNotAlreadyApplied(line);
+  return {
+    ...line,
+    ...(updates.budgetPeriod === undefined ? {} : { budgetPeriod: updates.budgetPeriod }),
+    ...(updates.paydayDate === undefined ? {} : { paydayDate: updates.paydayDate }),
+    ...(updates.subEnvelopeId === undefined ? {} : { subEnvelopeId: updates.subEnvelopeId }),
+    ...(updates.amount === undefined
+      ? {}
+      : { amount: assertPositiveAmount(updates.amount, "updateBudgetLine") }),
+    ...(updates.description === undefined
+      ? {}
+      : { description: assertNonEmptyDescription(updates.description, "updateBudgetLine") }),
+  };
+}
+
 /** Input required to apply a `BudgetLine` into a ledger `Transaction`. */
 export interface ApplyBudgetLineInput {
   readonly id: TransactionId;

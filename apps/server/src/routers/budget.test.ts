@@ -542,3 +542,212 @@ describe("budget.createBudgetLine — domain validation errors (unwrapped Error,
     await app.close();
   });
 });
+
+// The update-mutation tests below each create their own fresh
+// PaydaySchedule/BudgetLine fixture via the create mutation rather than
+// reusing any seeded or earlier-created one — this sidesteps the exact same
+// fixture-scarcity concern documented above (an update target must not
+// already be applied, and must not be shared with a test elsewhere in this
+// file that asserts an exact count/state against it).
+
+describe("budget.updatePaydaySchedule — success", () => {
+  it("applies a partial update, round-tripping the new fields, leaving id unchanged", async () => {
+    const app = buildServer();
+    const created = await mutateBudget<CreatedPaydaySchedule>(app, "createPaydaySchedule", {
+      name: "Original schedule",
+      paydayDaysOfMonth: [1],
+    });
+
+    const updated = await mutateBudget<CreatedPaydaySchedule>(app, "updatePaydaySchedule", {
+      id: created.id,
+      name: "Renamed schedule",
+      paydayDaysOfMonth: [10, 20],
+    });
+
+    expect(updated.id).toBe(created.id);
+    expect(updated.name).toBe("Renamed schedule");
+    expect(updated.paydayDaysOfMonth).toEqual([10, 20]);
+    await app.close();
+  });
+
+  it("leaves an unspecified field untouched, and persists the update in a fresh budget.paydaySchedules request", async () => {
+    const app = buildServer();
+    const created = await mutateBudget<CreatedPaydaySchedule>(app, "createPaydaySchedule", {
+      name: "Original schedule 2",
+      paydayDaysOfMonth: [5],
+    });
+    await mutateBudget<CreatedPaydaySchedule>(app, "updatePaydaySchedule", {
+      id: created.id,
+      name: "Persisted rename",
+    });
+
+    const schedules = await queryBudget<CreatedPaydaySchedule[]>(app, "paydaySchedules");
+    const found = schedules.find((schedule) => schedule.id === created.id);
+    expect(found?.name).toBe("Persisted rename");
+    expect(found?.paydayDaysOfMonth).toEqual([5]);
+    await app.close();
+  });
+});
+
+describe("budget.updatePaydaySchedule — validation errors", () => {
+  it("returns NOT_FOUND (404) for a well-formed but nonexistent id", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateBudgetExpectingError(app, "updatePaydaySchedule", {
+      id: "schedule-does-not-exist",
+      name: "Nope",
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("rejects an empty/whitespace-only name (unwrapped Error, surfaces as 500)", async () => {
+    const app = buildServer();
+    const created = await mutateBudget<CreatedPaydaySchedule>(app, "createPaydaySchedule", {
+      name: "Valid",
+      paydayDaysOfMonth: [1],
+    });
+    const { statusCode } = await mutateBudgetExpectingError(app, "updatePaydaySchedule", {
+      id: created.id,
+      name: "   ",
+    });
+    expect(statusCode).toBeGreaterThanOrEqual(400);
+    await app.close();
+  });
+});
+
+describe("budget.updateBudgetLine — success", () => {
+  it("applies a partial update, round-tripping the new fields, leaving unspecified fields unchanged", async () => {
+    const app = buildServer();
+    const created = await mutateBudget<CreatedBudgetLine>(app, "createBudgetLine", {
+      paydayDate: "2026-10-15",
+      subEnvelopeId: "sub-envelope-groceries-fund",
+      amount: "100.00",
+      description: "October groceries",
+    });
+
+    const updated = await mutateBudget<CreatedBudgetLine>(app, "updateBudgetLine", {
+      id: created.id,
+      amount: "150.00",
+      description: "October groceries (revised)",
+    });
+
+    expect(updated.id).toBe(created.id);
+    expect(updated.amount).toBe(15000);
+    expect(updated.description).toBe("October groceries (revised)");
+    expect(updated.subEnvelopeId).toBe("sub-envelope-groceries-fund");
+    expect(updated.paydayDate).toBe("2026-10-15");
+    await app.close();
+  });
+
+  it("re-derives budgetPeriod from a new paydayDate automatically (router-level derivation, distinct from the domain function's own no-auto-derive contract)", async () => {
+    const app = buildServer();
+    const created = await mutateBudget<CreatedBudgetLine>(app, "createBudgetLine", {
+      paydayDate: "2026-10-15",
+      subEnvelopeId: "sub-envelope-groceries-fund",
+      amount: "100.00",
+      description: "October groceries 2",
+    });
+    expect(created.budgetPeriod).toEqual({ year: 2026, month: 10 });
+
+    const updated = await mutateBudget<CreatedBudgetLine>(app, "updateBudgetLine", {
+      id: created.id,
+      paydayDate: "2026-11-01",
+    });
+
+    expect(updated.paydayDate).toBe("2026-11-01");
+    expect(updated.budgetPeriod).toEqual({ year: 2026, month: 11 });
+    await app.close();
+  });
+});
+
+describe("budget.updateBudgetLine — persistence", () => {
+  it("persists the update, visible in a fresh budget.budgetLines request", async () => {
+    const app = buildServer();
+    const created = await mutateBudget<CreatedBudgetLine>(app, "createBudgetLine", {
+      paydayDate: "2026-10-20",
+      subEnvelopeId: "sub-envelope-groceries-fund",
+      amount: "10.00",
+      description: "Persisted original",
+    });
+    await mutateBudget<CreatedBudgetLine>(app, "updateBudgetLine", {
+      id: created.id,
+      description: "Persisted updated",
+    });
+
+    const lines = await queryBudget<CreatedBudgetLine[]>(app, "budgetLines");
+    const found = lines.find((line) => line.id === created.id);
+    expect(found?.description).toBe("Persisted updated");
+    expect(found?.amount).toBe(1000);
+    await app.close();
+  });
+});
+
+describe("budget.updateBudgetLine — validation errors", () => {
+  it("returns NOT_FOUND (404) for a well-formed but nonexistent id", async () => {
+    const app = buildServer();
+    const { statusCode, error } = await mutateBudgetExpectingError(app, "updateBudgetLine", {
+      id: "budget-line-does-not-exist",
+      description: "Nope",
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("returns NOT_FOUND (404) for a well-formed but nonexistent subEnvelopeId", async () => {
+    const app = buildServer();
+    const created = await mutateBudget<CreatedBudgetLine>(app, "createBudgetLine", {
+      paydayDate: "2026-10-25",
+      subEnvelopeId: "sub-envelope-groceries-fund",
+      amount: "10.00",
+      description: "For NOT_FOUND test",
+    });
+    const { statusCode, error } = await mutateBudgetExpectingError(app, "updateBudgetLine", {
+      id: created.id,
+      subEnvelopeId: "sub-envelope-does-not-exist",
+    });
+    expect(statusCode).toBe(404);
+    expect(error.data.code).toBe("NOT_FOUND");
+    await app.close();
+  });
+
+  it("rejects a zero amount (unwrapped Error, surfaces as 500)", async () => {
+    const app = buildServer();
+    const created = await mutateBudget<CreatedBudgetLine>(app, "createBudgetLine", {
+      paydayDate: "2026-10-26",
+      subEnvelopeId: "sub-envelope-groceries-fund",
+      amount: "10.00",
+      description: "For zero-amount test",
+    });
+    const { statusCode } = await mutateBudgetExpectingError(app, "updateBudgetLine", {
+      id: created.id,
+      amount: "0.00",
+    });
+    expect(statusCode).toBeGreaterThanOrEqual(400);
+    await app.close();
+  });
+});
+
+describe("budget.updateBudgetLine — already-applied rejection", () => {
+  it("rejects updating an already-applied line (unwrapped Error, surfaces as 500)", async () => {
+    const app = buildServer();
+    const created = await mutateBudget<CreatedBudgetLine>(app, "createBudgetLine", {
+      paydayDate: "2026-10-27",
+      subEnvelopeId: "sub-envelope-groceries-fund",
+      amount: "10.00",
+      description: "For already-applied test",
+    });
+    await mutateBudget(app, "applyBudgetLine", {
+      budgetLineId: created.id,
+      accountId: "account-savings",
+    });
+
+    const { statusCode } = await mutateBudgetExpectingError(app, "updateBudgetLine", {
+      id: created.id,
+      description: "Should not be allowed",
+    });
+    expect(statusCode).toBeGreaterThanOrEqual(400);
+    await app.close();
+  });
+});
